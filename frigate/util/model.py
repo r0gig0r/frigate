@@ -2,6 +2,8 @@
 
 import logging
 import os
+import subprocess
+import threading
 from typing import Any
 
 import cv2
@@ -281,6 +283,77 @@ def post_process_yolox(
 
 
 ### ONNX Utilities
+
+
+class GpuDeviceBalancer:
+    """Track lightweight load estimates for GPU device selection."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counts: dict[str, int] = {}
+
+    def select(self, pool: list[str]) -> str:
+        """Return the least-used device from the pool and increment its count."""
+
+        with self._lock:
+            for device in pool:
+                self._counts.setdefault(device, 0)
+
+            # choose the device with the lowest active runner count
+            chosen = min(pool, key=lambda dev: self._counts.get(dev, 0))
+            self._counts[chosen] += 1
+            return chosen
+
+
+GPU_DEVICE_BALANCER = GpuDeviceBalancer()
+
+
+def discover_gpu_devices() -> list[str]:
+    """Return available GPU ids from environment or system tools.
+
+    Order of preference:
+    1. Respect CUDA/NVIDIA_VISIBLE_DEVICES if provided.
+    2. Use PyTorch (if installed) to count CUDA devices.
+    3. Fall back to parsing `nvidia-smi --list-gpus`.
+    """
+
+    def _split_env(var: str) -> list[str]:
+        raw = os.environ.get(var, "").strip()
+        if not raw:
+            return []
+        return [entry.strip() for entry in raw.split(",") if entry.strip() and entry != "none"]
+
+    for env_var in ["CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES"]:
+        env_devices = _split_env(env_var)
+        if env_devices:
+            return env_devices
+
+    try:
+        import torch
+
+        count = torch.cuda.device_count()
+        if count:
+            return [str(i) for i in range(count)]
+    except Exception:
+        # Torch may be unavailable or CUDA not present; ignore and continue.
+        pass
+
+    try:
+        output = subprocess.check_output(["nvidia-smi", "--list-gpus"], text=True)
+        discovered = []
+        for line in output.splitlines():
+            if line.startswith("GPU "):
+                parts = line.split()
+                if len(parts) >= 2:
+                    discovered.append(parts[1].rstrip(":"))
+
+        if discovered:
+            return discovered
+    except Exception:
+        # nvidia-smi not available or GPUs not detected.
+        pass
+
+    return []
 
 
 def get_ort_providers(

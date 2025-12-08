@@ -30,6 +30,7 @@ class JinaV2Embedding(BaseEmbedding):
         model_size: str,
         requestor: InterProcessRequestor,
         device: str = "AUTO",
+        device_pool: list[str] | None = None,
         embedding_type: str = None,
     ):
         model_file = (
@@ -49,6 +50,7 @@ class JinaV2Embedding(BaseEmbedding):
         self.requestor = requestor
         self.model_size = model_size
         self.device = device
+        self.device_pool = device_pool
         self.download_path = os.path.join(MODEL_CACHE_DIR, self.model_name)
         self.tokenizer = None
         self.image_processor = None
@@ -130,6 +132,7 @@ class JinaV2Embedding(BaseEmbedding):
                 os.path.join(self.download_path, self.model_file),
                 self.device,
                 model_type=EnrichmentModelTypeEnum.jina_v2.value,
+                device_pool=self.device_pool,
             )
 
     def _preprocess_image(self, image_data: bytes | Image.Image) -> np.ndarray:

@@ -54,7 +54,7 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
         self.sub_label_publisher = sub_label_publisher
         self.face_detector: cv2.FaceDetectorYN = None
         self.requires_face_detection = "face" not in self.config.objects.all_objects
-        self.person_face_history: dict[str, list[tuple[str, float, int]]] = {}
+        self.person_face_history: dict[str, list[tuple[str, float, int, bool]]] = {}
         self.camera_current_people: dict[str, list[str]] = {}
         self.recognizer: FaceRecognizer | None = None
         self.faces_per_second = EventsPerSecond()
@@ -291,9 +291,28 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             f"Detected best face for person as: {sub_label} with probability {score}"
         )
 
-        self.write_face_attempt(
-            face_frame, id, datetime.datetime.now().timestamp(), sub_label, score
-        )
+        quality_variance = float(cv2.Laplacian(face_frame, cv2.CV_64F).var())
+        quality_ok = True
+
+        if (
+            self.face_config.min_quality_variance is not None
+            and quality_variance < self.face_config.min_quality_variance
+        ):
+            quality_ok = False
+            logger.debug(
+                "Face quality below threshold (variance %.2f < %.2f)",
+                quality_variance,
+                self.face_config.min_quality_variance,
+            )
+
+        if quality_ok:
+            self.write_face_attempt(
+                face_frame,
+                id,
+                datetime.datetime.now().timestamp(),
+                sub_label,
+                score,
+            )
 
         if id not in self.person_face_history:
             self.person_face_history[id] = []
@@ -304,10 +323,31 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             self.camera_current_people[camera].append(id)
 
         self.person_face_history[id].append(
-            (sub_label, score, face_frame.shape[0] * face_frame.shape[1])
+            (
+                sub_label,
+                score,
+                face_frame.shape[0] * face_frame.shape[1],
+                quality_ok,
+            )
         )
-        (weighted_sub_label, weighted_score) = self.weighted_average(
-            self.person_face_history[id]
+        (
+            weighted_sub_label,
+            weighted_score,
+            label_counts,
+            quality_counts,
+        ) = self.weighted_average(self.person_face_history[id])
+
+        ready_for_label = (
+            weighted_sub_label
+            and label_counts.get(weighted_sub_label, 0)
+            >= self.face_config.min_faces
+            and quality_counts.get(weighted_sub_label, 0)
+            >= self.face_config.min_quality_faces
+            and all(
+                label_counts.get(weighted_sub_label, 0) > count
+                for name, count in label_counts.items()
+                if name != weighted_sub_label
+            )
         )
 
         self.requestor.send_data(
@@ -324,7 +364,9 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             ),
         )
 
-        if weighted_score >= self.face_config.recognition_threshold:
+        if ready_for_label and (
+            weighted_score >= self.face_config.recognition_threshold
+        ):
             self.sub_label_publisher.publish(
                 (id, weighted_sub_label, weighted_score),
                 EventMetadataTypeEnum.sub_label.value,
@@ -460,7 +502,9 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 self.camera_current_people[camera].remove(object_id)
 
     def weighted_average(
-        self, results_list: list[tuple[str, float, int]], max_weight: int = 4000
+        self,
+        results_list: list[tuple[str, float, int, bool]],
+        max_weight: int = 4000,
     ):
         """
         Calculates a robust weighted average, capping the area weight and giving more weight to higher scores.
@@ -476,20 +520,25 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             return None, 0.0
 
         counts: dict[str, int] = {}
+        quality_counts: dict[str, int] = {}
         weighted_scores: dict[str, int] = {}
         total_weights: dict[str, int] = {}
 
-        for name, score, face_area in results_list:
+        for name, score, face_area, quality_ok in results_list:
             if name == "unknown":
                 continue
 
             if name not in weighted_scores:
                 counts[name] = 0
+                quality_counts[name] = 0
                 weighted_scores[name] = 0.0
                 total_weights[name] = 0.0
 
             # increase count
             counts[name] += 1
+
+            if quality_ok:
+                quality_counts[name] += 1
 
             # Capped weight based on face area
             weight = min(face_area, max_weight)
@@ -500,22 +549,13 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             total_weights[name] += weight
 
         if not weighted_scores:
-            return None, 0.0
+            return None, 0.0, {}, {}
 
         best_name = max(weighted_scores, key=weighted_scores.get)
 
-        # If the number of faces for this person < min_faces, we are not confident it is a correct result
-        if counts[best_name] < self.face_config.min_faces:
-            return None, 0.0
-
-        # If the best name has the same number of results as another name, we are not confident it is a correct result
-        for name, count in counts.items():
-            if name != best_name and counts[best_name] == count:
-                return None, 0.0
-
         weighted_average = weighted_scores[best_name] / total_weights[best_name]
 
-        return best_name, weighted_average
+        return best_name, weighted_average, counts, quality_counts
 
     def write_face_attempt(
         self,
@@ -524,6 +564,7 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
         timestamp: float,
         sub_label: str,
         score: float,
+        quality_ok: bool = True,
     ) -> None:
         if self.config.face_recognition.save_attempts:
             # write face to library
@@ -536,7 +577,8 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 folder, f"{event_id}-{timestamp}-{sub_label}-{score}.webp"
             )
             os.makedirs(folder, exist_ok=True)
-            cv2.imwrite(file, frame)
+            if quality_ok:
+                cv2.imwrite(file, frame)
 
             files = sorted(
                 filter(lambda f: (f.endswith(".webp")), os.listdir(folder)),
