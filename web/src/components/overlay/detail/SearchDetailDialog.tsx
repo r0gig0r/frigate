@@ -2,6 +2,7 @@ import { isDesktop, isIOS, isMobile, isSafari } from "react-device-detect";
 import { SearchResult } from "@/types/search";
 import useSWR from "swr";
 import { FrigateConfig } from "@/types/frigateConfig";
+import { FaceLibraryData } from "@/types/face";
 import { useFormattedTimestamp } from "@/hooks/use-date-utils";
 import { getIconForLabel } from "@/utils/iconUtil";
 import { useApiHost } from "@/api";
@@ -93,6 +94,8 @@ import { useDetailStream } from "@/context/detail-stream-context";
 import { PiSlidersHorizontalBold } from "react-icons/pi";
 import { HiSparkles } from "react-icons/hi";
 import { useAudioTranscriptionProcessState } from "@/api/ws";
+import FaceSelectionDialog from "@/components/overlay/FaceSelectionDialog";
+import AddFaceIcon from "@/components/icons/AddFaceIcon";
 
 const SEARCH_TABS = ["snapshot", "tracking_details"] as const;
 export type SearchTab = (typeof SEARCH_TABS)[number];
@@ -399,6 +402,7 @@ function DialogContentComponent({
               config={config}
               setSearch={setSearch}
               setInputFocused={setInputFocused}
+              faceNames={faceNames}
             />
           </div>
         </div>
@@ -415,6 +419,7 @@ function DialogContentComponent({
         config={config}
         setSearch={setSearch}
         setInputFocused={setInputFocused}
+        faceNames={faceNames}
       />
     </>
   );
@@ -445,7 +450,20 @@ export default function SearchDetailDialog({
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
   });
+  const { data: faceLibrary } = useSWR<FaceLibraryData>("faces", {
+    revalidateOnFocus: false,
+  });
   const apiHost = useApiHost();
+
+  const faceNames = useMemo(
+    () =>
+      faceLibrary
+        ? Object.keys(faceLibrary)
+            .filter((face) => face !== "train")
+            .sort()
+        : [],
+    [faceLibrary],
+  );
 
   // tabs
 
@@ -664,12 +682,14 @@ type ObjectDetailsTabProps = {
   config?: FrigateConfig;
   setSearch: (search: SearchResult | undefined) => void;
   setInputFocused: React.Dispatch<React.SetStateAction<boolean>>;
+  faceNames: string[];
 };
 function ObjectDetailsTab({
   search,
   config,
   setSearch,
   setInputFocused,
+  faceNames,
 }: ObjectDetailsTabProps) {
   const { t, i18n } = useTranslation([
     "views/explore",
@@ -977,6 +997,33 @@ function ObjectDetailsTab({
     [search, apiHost, mutate, setSearch, t, mapSearchResults, isEventsKey],
   );
 
+  const onTrainFaceFromEvent = useCallback(
+    (faceName: string) => {
+      if (!search?.id) return;
+
+      axios
+        .post(`/faces/train/${faceName}/classify`, { event_id: search.id })
+        .then((response) => {
+          if (response.status === 200) {
+            toast.success(t("toast.success.trainedFace", { ns: "views/faceLibrary" }), {
+              position: "top-center",
+            });
+            handleSubLabelSave(faceName);
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.trainFailed", { ns: "views/faceLibrary", errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [search, handleSubLabelSave, t],
+  );
+
   // recognized plate
 
   const handleLPRSave = useCallback(
@@ -1159,6 +1206,30 @@ function ObjectDetailsTab({
                       {getIconForLabel(search.label, "size-4 text-primary")}
                       {getTranslatedLabel(search.label, search.data.type)}
                       {search.sub_label && ` (${search.sub_label})`}
+                      {isAdmin && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <FaceSelectionDialog
+                              faceNames={faceNames}
+                              onTrainAttempt={onTrainFaceFromEvent}
+                            >
+                              <button
+                                className="text-primary/40 hover:text-primary/80"
+                                aria-label={t("button.trainFace", {
+                                  ns: "views/faceLibrary",
+                                })}
+                              >
+                                <AddFaceIcon className="size-4" />
+                              </button>
+                            </FaceSelectionDialog>
+                          </TooltipTrigger>
+                          <TooltipPortal>
+                            <TooltipContent>
+                              {t("button.trainFromEvent", { ns: "views/faceLibrary" })}
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                      )}
                       {isAdmin && search.end_time && (
                         <Tooltip>
                           <TooltipTrigger asChild>
