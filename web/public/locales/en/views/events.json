@@ -50,6 +50,7 @@
     "label": "View new review items",
     "button": "New Items To Review"
   },
+  "faceRecognition": "Face recognition",
   "selected_one": "{{count}} selected",
   "selected_other": "{{count}} selected",
   "camera": "Camera",

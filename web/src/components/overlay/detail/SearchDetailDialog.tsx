@@ -81,7 +81,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { LuInfo } from "react-icons/lu";
+import { LuInfo, LuRefreshCw } from "react-icons/lu";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { FaPencilAlt } from "react-icons/fa";
 import TextEntryDialog from "@/components/overlay/dialog/TextEntryDialog";
@@ -726,10 +726,16 @@ function ObjectDetailsTab({
   // data
 
   const [desc, setDesc] = useState(search?.data.description);
+  const [isReprocessingFace, setIsReprocessingFace] = useState(false);
+  const [faceAnalysisDetails, setFaceAnalysisDetails] = useState<string>();
   const [isSubLabelDialogOpen, setIsSubLabelDialogOpen] = useState(false);
   const [isLPRDialogOpen, setIsLPRDialogOpen] = useState(false);
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const originalDescRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setFaceAnalysisDetails(undefined);
+  }, [search?.id]);
 
   const handleDescriptionFocus = useCallback(() => {
     setInputFocused(true);
@@ -1024,6 +1030,53 @@ function ObjectDetailsTab({
     [search, handleSubLabelSave, t],
   );
 
+  const onReprocessEventFace = useCallback(() => {
+    if (!search?.id) return;
+
+    setIsReprocessingFace(true);
+
+    axios
+      .put(`/faces/reprocess_event/${search.id}`)
+      .then((response) => {
+        if (response.status === 200) {
+          const detail = response.data;
+          setFaceAnalysisDetails(JSON.stringify(detail, null, 2));
+          const faceName = detail?.face_name || detail?.face || detail?.label;
+          const score = detail?.score;
+          toast.success(
+            faceName
+              ? t("toast.success.reprocessedEventFace", {
+                  ns: "views/faceLibrary",
+                  face: faceName,
+                  score: typeof score === "number" ? score.toFixed(2) : score,
+                })
+              : t("toast.success.reprocessedEventFaceGeneric", {
+                  ns: "views/faceLibrary",
+                }),
+            {
+              position: "top-center",
+            },
+          );
+        }
+      })
+      .catch((error) => {
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Unknown error";
+        toast.error(
+          t("toast.error.reprocessEventFaceFailed", {
+            ns: "views/faceLibrary",
+            errorMessage,
+          }),
+          {
+            position: "top-center",
+          },
+        );
+      })
+      .finally(() => setIsReprocessingFace(false));
+  }, [search, t]);
+
   // recognized plate
 
   const handleLPRSave = useCallback(
@@ -1249,6 +1302,40 @@ function ObjectDetailsTab({
                       )}
                     </div>
                   </div>
+
+                  <div className="flex flex-row flex-wrap items-center gap-2">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={isReprocessingFace}
+                      onClick={() => onReprocessEventFace()}
+                      className="h-8 gap-2 px-3"
+                    >
+                      <LuRefreshCw
+                        className={cn(
+                          "size-3",
+                          isReprocessingFace && "animate-spin",
+                        )}
+                      />
+                      {isReprocessingFace
+                        ? t("button.reprocessingEventFace", {
+                            ns: "views/faceLibrary",
+                          })
+                        : t("button.reprocessEventFace", {
+                            ns: "views/faceLibrary",
+                          })}
+                    </Button>
+                    {faceAnalysisDetails && (
+                      <div className="text-xs font-medium text-primary/70">
+                        {t("details.faceAnalysisHeader", { ns: "views/faceLibrary" })}
+                      </div>
+                    )}
+                  </div>
+                  {faceAnalysisDetails && (
+                    <pre className="scrollbar-container max-h-40 whitespace-pre-wrap rounded-md bg-muted/60 p-2 text-[11px] leading-[1.1rem] text-muted-foreground">
+                      {faceAnalysisDetails}
+                    </pre>
+                  )}
 
                   <div className="flex flex-col gap-1.5">
                     <div className="text-sm text-primary/40">

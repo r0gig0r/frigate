@@ -56,6 +56,11 @@ import { GiSoundWaves } from "react-icons/gi";
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import { useTimelineZoom } from "@/hooks/use-timeline-zoom";
 import { useTranslation } from "react-i18next";
+import SearchDetailDialog, {
+  SearchTab,
+} from "@/components/overlay/detail/SearchDetailDialog";
+import { SearchResult } from "@/types/search";
+import { Event as FrigateEvent } from "@/types/event";
 
 type EventViewProps = {
   reviewItems?: SegmentedReviewData;
@@ -98,6 +103,17 @@ export default function EventView({
   const { t } = useTranslation(["views/events"]);
   const { data: config } = useSWR<FrigateConfig>("config");
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [detailDialogTab, setDetailDialogTab] = useState<SearchTab>(
+    "tracking_details",
+  );
+  const [selectedDetailId, setSelectedDetailId] = useState<string>();
+  const { data: detailEvent } = useSWR<FrigateEvent>(
+    selectedDetailId ? `events/${selectedDetailId}` : null,
+  );
+  const detailSearch = useMemo<SearchResult | undefined>(
+    () => (detailEvent ? (detailEvent as unknown as SearchResult) : undefined),
+    [detailEvent],
+  );
 
   // review counts
 
@@ -716,6 +732,17 @@ function DetectionReview({
 
   return (
     <>
+      <SearchDetailDialog
+        search={detailSearch}
+        page={detailDialogTab}
+        setSearchPage={setDetailDialogTab}
+        setSearch={(search) => {
+          if (!search) {
+            setSelectedDetailId(undefined);
+          }
+        }}
+        setInputFocused={() => {}}
+      />
       <div
         ref={contentRef}
         className="no-scrollbar flex flex-1 flex-wrap content-start gap-2 overflow-y-auto md:gap-4"
@@ -778,6 +805,20 @@ function DetectionReview({
                           onSelectReview(review, ctrl, detail);
                         }}
                       />
+                    </div>
+                    <div className="mt-2 flex items-center justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full justify-center text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDetailDialogTab("tracking_details");
+                          setSelectedDetailId(value.id);
+                        }}
+                      >
+                        {t("faceRecognition", { ns: "views/events" })}
+                      </Button>
                     </div>
                     <div
                       className={cn(

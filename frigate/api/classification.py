@@ -261,6 +261,64 @@ def train_face(request: Request, name: str, body: dict = None):
     )
 
 
+@router.put(
+    "/faces/reprocess_event/{event_id}",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Reprocess a face recognition attempt for an event",
+    description="""Extracts the snapshot for an event and re-runs face recognition on it.
+    Requires face recognition to be enabled. Returns the raw recognition payload so
+    the caller can inspect scores and suggested identities.""",
+)
+def reprocess_event_face(request: Request, event_id: str):
+    if not request.app.frigate_config.face_recognition.enabled:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Face recognition is not enabled.", "success": False},
+        )
+
+    try:
+        event = Event.get(Event.id == event_id)
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": f"Event {event_id} not found."},
+            status_code=404,
+        )
+
+    snapshot = get_event_snapshot(event)
+
+    if snapshot is None or snapshot.size == 0:
+        return JSONResponse(
+            content={"success": False, "message": "No snapshot available for event."},
+            status_code=404,
+        )
+
+    os.makedirs(os.path.join(FACE_DIR, "train"), exist_ok=True)
+    temp_path = os.path.join(FACE_DIR, "train", f"reprocess-{event_id}.jpg")
+    cv2.imwrite(temp_path, snapshot)
+
+    context: EmbeddingsContext = request.app.embeddings
+    response = context.reprocess_face(temp_path)
+
+    try:
+        os.remove(temp_path)
+    except OSError:
+        pass
+
+    if not isinstance(response, dict):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Could not process face reprocessing request.",
+            },
+        )
+
+    return JSONResponse(
+        status_code=200 if response.get("success", True) else 400,
+        content=response,
+    )
+
+
 @router.post(
     "/faces/{name}/create",
     response_model=GenericResponse,
