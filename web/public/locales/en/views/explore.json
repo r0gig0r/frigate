@@ -35,7 +35,9 @@
     "snapshot": "snapshot",
     "thumbnail": "thumbnail",
     "video": "video",
-    "tracking_details": "tracking details"
+    "tracking_details": "tracking details",
+    "face_recognition": "face recognition",
+    "debug": "debug"
   },
   "trackingDetails": {
     "title": "Tracking Details",

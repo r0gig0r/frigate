@@ -219,6 +219,12 @@ class EmbeddingsContext:
             EmbeddingsRequestEnum.reprocess_face.value, {"image_file": face_file}
         )
 
+    def detect_recognize_faces(self, event_id: str, image_data: bytes) -> dict[str, Any]:
+        return self.requestor.send_data(
+            EmbeddingsRequestEnum.detect_recognize_faces.value,
+            {"event_id": event_id, "image": base64.b64encode(image_data).decode("ASCII")},
+        )
+
     def clear_face_classifier(self) -> None:
         self.requestor.send_data(
             EmbeddingsRequestEnum.clear_face_classifier.value, None

@@ -22,6 +22,7 @@ class EmbeddingsRequestEnum(Enum):
     recognize_face = "recognize_face"
     register_face = "register_face"
     reprocess_face = "reprocess_face"
+    detect_recognize_faces = "detect_recognize_faces"
     # semantic search
     embed_description = "embed_description"
     embed_thumbnail = "embed_thumbnail"

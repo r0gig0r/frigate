@@ -292,17 +292,12 @@ def reprocess_event_face(request: Request, event_id: str):
             status_code=404,
         )
 
-    os.makedirs(os.path.join(FACE_DIR, "train"), exist_ok=True)
-    temp_path = os.path.join(FACE_DIR, "train", f"reprocess-{event_id}.jpg")
-    cv2.imwrite(temp_path, snapshot)
+    # Encode snapshot to bytes for sending to face detection
+    _, encoded = cv2.imencode(".jpg", snapshot)
+    image_bytes = encoded.tobytes()
 
     context: EmbeddingsContext = request.app.embeddings
-    response = context.reprocess_face(temp_path)
-
-    try:
-        os.remove(temp_path)
-    except OSError:
-        pass
+    response = context.detect_recognize_faces(event_id, image_bytes)
 
     if not isinstance(response, dict):
         return JSONResponse(

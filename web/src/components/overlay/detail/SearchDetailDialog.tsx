@@ -96,8 +96,10 @@ import { HiSparkles } from "react-icons/hi";
 import { useAudioTranscriptionProcessState } from "@/api/ws";
 import FaceSelectionDialog from "@/components/overlay/FaceSelectionDialog";
 import AddFaceIcon from "@/components/icons/AddFaceIcon";
+import FaceRecognitionTab from "./FaceRecognitionTab";
+import FaceDebugTab from "./FaceDebugTab";
 
-const SEARCH_TABS = ["snapshot", "tracking_details"] as const;
+const SEARCH_TABS = ["snapshot", "tracking_details", "face_recognition", "debug"] as const;
 export type SearchTab = (typeof SEARCH_TABS)[number];
 
 type TabsWithActionsProps = {
@@ -300,6 +302,7 @@ type DialogContentComponentProps = {
   isPopoverOpen: boolean;
   setIsPopoverOpen: (open: boolean) => void;
   dialogContainer: HTMLDivElement | null;
+  faceNames: string[];
 };
 
 function DialogContentComponent({
@@ -317,6 +320,7 @@ function DialogContentComponent({
   isPopoverOpen,
   setIsPopoverOpen,
   dialogContainer,
+  faceNames,
 }: DialogContentComponentProps) {
   if (page === "tracking_details") {
     return (
@@ -340,6 +344,133 @@ function DialogContentComponent({
           ) : undefined
         }
       />
+    );
+  }
+
+  // Face Recognition tab - use same grid structure as other tabs
+  if (page === "face_recognition") {
+    if (isDesktop) {
+      return (
+        <div className="grid h-full w-full grid-cols-[60%_40%] gap-4">
+          <div className="scrollbar-container min-w-0 overflow-y-auto overflow-x-hidden">
+            <FaceRecognitionTab
+              event={search}
+              config={config}
+              faceNames={faceNames}
+              isDesktop={isDesktop}
+              side="left"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4 pr-2">
+            <TabsWithActions
+              search={search}
+              searchTabs={searchTabs}
+              pageToggle={pageToggle}
+              setPageToggle={setPageToggle}
+              config={config}
+              setSearch={setSearch}
+              setSimilarity={setSimilarity}
+              isPopoverOpen={isPopoverOpen}
+              setIsPopoverOpen={setIsPopoverOpen}
+              dialogContainer={dialogContainer}
+            />
+            <div className="scrollbar-container min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4">
+              <FaceRecognitionTab
+                event={search}
+                config={config}
+                faceNames={faceNames}
+                isDesktop={isDesktop}
+                side="right"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // mobile
+    return (
+      <>
+        <TabsWithActions
+          search={search}
+          searchTabs={searchTabs}
+          pageToggle={pageToggle}
+          setPageToggle={setPageToggle}
+          config={config}
+          setSearch={setSearch}
+          setSimilarity={setSimilarity}
+          isPopoverOpen={isPopoverOpen}
+          setIsPopoverOpen={setIsPopoverOpen}
+          dialogContainer={dialogContainer}
+        />
+        <FaceRecognitionTab
+          event={search}
+          config={config}
+          faceNames={faceNames}
+          isDesktop={isDesktop}
+        />
+      </>
+    );
+  }
+
+  // Debug tab - use same grid structure
+  if (page === "debug") {
+    if (isDesktop) {
+      return (
+        <div className="grid h-full w-full grid-cols-[60%_40%] gap-4">
+          <div className="scrollbar-container min-w-0 overflow-y-auto overflow-x-hidden">
+            <FaceDebugTab
+              event={search}
+              config={config}
+              isDesktop={isDesktop}
+              side="left"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4 pr-2">
+            <TabsWithActions
+              search={search}
+              searchTabs={searchTabs}
+              pageToggle={pageToggle}
+              setPageToggle={setPageToggle}
+              config={config}
+              setSearch={setSearch}
+              setSimilarity={setSimilarity}
+              isPopoverOpen={isPopoverOpen}
+              setIsPopoverOpen={setIsPopoverOpen}
+              dialogContainer={dialogContainer}
+            />
+            <div className="scrollbar-container min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4">
+              <FaceDebugTab
+                event={search}
+                config={config}
+                isDesktop={isDesktop}
+                side="right"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // mobile
+    return (
+      <>
+        <TabsWithActions
+          search={search}
+          searchTabs={searchTabs}
+          pageToggle={pageToggle}
+          setPageToggle={setPageToggle}
+          config={config}
+          setSearch={setSearch}
+          setSimilarity={setSimilarity}
+          isPopoverOpen={isPopoverOpen}
+          setIsPopoverOpen={setIsPopoverOpen}
+          dialogContainer={dialogContainer}
+        />
+        <FaceDebugTab
+          event={search}
+          config={config}
+          isDesktop={isDesktop}
+        />
+      </>
     );
   }
 
@@ -670,6 +801,7 @@ export default function SearchDetailDialog({
             isPopoverOpen={isPopoverOpen}
             setIsPopoverOpen={setIsPopoverOpen}
             dialogContainer={dialogContainer}
+            faceNames={faceNames}
           />
         </Content>
       </Overlay>

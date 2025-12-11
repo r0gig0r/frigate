@@ -293,6 +293,15 @@ def parse_preset_hardware_acceleration_encode(
 
 
 PRESETS_INPUT = {
+    "preset-file-once": [
+        "-re",  # Read input at native frame rate (important for file-based sources)
+        "-avoid_negative_ts",
+        "make_zero",
+        "-fflags",
+        "+genpts+discardcorrupt",
+        "-use_wallclock_as_timestamps",
+        "1",
+    ],
     "preset-http-jpeg-generic": [
         "-r",
         "{}",

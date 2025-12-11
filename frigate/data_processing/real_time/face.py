@@ -493,6 +493,125 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 "face_name": sub_label,
                 "score": score,
             }
+        elif topic == EmbeddingsRequestEnum.detect_recognize_faces.value:
+            # Full face detection + recognition from event snapshot
+            event_id: str = request_data["event_id"]
+            image_data = request_data.get("image")
+
+            if image_data is None:
+                return {
+                    "message": "No image data provided.",
+                    "success": False,
+                }
+
+            # Decode image from base64
+            img = cv2.imdecode(
+                np.frombuffer(base64.b64decode(image_data), dtype=np.uint8),
+                cv2.IMREAD_COLOR,
+            )
+
+            if img is None:
+                return {
+                    "message": "Failed to decode image.",
+                    "success": False,
+                }
+
+            # Parse event_id for filename generation
+            parts = event_id.split("-")
+            id_time = parts[0] if len(parts) >= 1 else "0"
+            id_rand = parts[1] if len(parts) >= 2 else "unknown"
+
+            # Detect all faces in the image
+            if not self.face_detector:
+                return {
+                    "message": "Face detector not initialized.",
+                    "success": False,
+                }
+
+            self.face_detector.setInputSize((img.shape[1], img.shape[0]))
+            faces = self.face_detector.detect(img)
+
+            if faces[1] is None or len(faces[1]) == 0:
+                return {
+                    "message": "No faces detected in image.",
+                    "success": False,
+                    "faces": [],
+                }
+
+            results = []
+            folder = os.path.join(FACE_DIR, "train")
+            os.makedirs(folder, exist_ok=True)
+            timestamp = str(int(datetime.datetime.now().timestamp()))
+
+            for i, face in enumerate(faces[1]):
+                # Extract face coordinates
+                x1 = int(face[0])
+                y1 = int(face[1])
+                w = int(face[2])
+                h = int(face[3])
+                x2 = x1 + w
+                y2 = y1 + h
+
+                # Ensure coordinates are within image bounds
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(img.shape[1], x2)
+                y2 = min(img.shape[0], y2)
+
+                # Crop face
+                face_crop = img[y1:y2, x1:x2]
+
+                if face_crop.size == 0:
+                    continue
+
+                # Run recognition on the face
+                res = self.recognizer.classify(face_crop)
+
+                if not res:
+                    sub_label = "unknown"
+                    score = 0.0
+                else:
+                    sub_label, score = res
+                    if score <= self.face_config.unknown_score:
+                        sub_label = "unknown"
+
+                if "-" in sub_label:
+                    sub_label = sub_label.replace("-", "_")
+
+                # Encode crop image as base64 for debug
+                _, encoded_crop = cv2.imencode(
+                    ".jpg", face_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 95]
+                )
+                crop_base64 = base64.b64encode(encoded_crop.tobytes()).decode("ASCII")
+
+                # Save the face to training folder
+                if self.config.face_recognition.save_attempts:
+                    filename = f"{id_time}-{id_rand}-{timestamp}-{sub_label}-{score:.2f}.webp"
+                    filepath = os.path.join(folder, filename)
+                    _, thumbnail = cv2.imencode(
+                        ".webp", face_crop, [int(cv2.IMWRITE_WEBP_QUALITY), 100]
+                    )
+                    with open(filepath, "wb") as f:
+                        f.write(thumbnail.tobytes())
+
+                    results.append({
+                        "filename": filename,
+                        "face_name": sub_label,
+                        "score": score,
+                        "box": [x1 / img.shape[1], y1 / img.shape[0], w / img.shape[1], h / img.shape[0]],
+                        "pixel_box": [x1, y1, x2, y2],
+                        "crop_image": crop_base64,
+                    })
+
+            return {
+                "message": f"Detected and processed {len(results)} face(s).",
+                "success": True,
+                "faces": results,
+                "snapshot_dimensions": {"width": img.shape[1], "height": img.shape[0]},
+                "detection_threshold": self.face_config.detection_threshold,
+                "recognition_threshold": self.face_config.recognition_threshold,
+                "unknown_threshold": self.face_config.unknown_score,
+            }
 
     def expire_object(self, object_id: str, camera: str):
         if object_id in self.person_face_history:
