@@ -263,6 +263,62 @@ export default function FaceLibrary() {
     [setPageToggle, refreshFaces, t],
   );
 
+  const onMarkFalsePositive = useCallback(() => {
+    axios
+      .post(`/faces/${pageToggle}/flag_false_positive`, { ids: selectedFaces })
+      .then((resp) => {
+        if (resp.status === 200) {
+          refreshFaces();
+          setSelectedFaces([]);
+          toast.success(t("toast.success.markedFalsePositive"), {
+            position: "top-center",
+          });
+        }
+      })
+      .catch((error) => {
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Unknown error";
+        toast.error(
+          t("toast.error.markFalsePositiveFailed", { errorMessage }),
+          {
+            position: "top-center",
+          },
+        );
+      });
+  }, [pageToggle, selectedFaces, refreshFaces, t]);
+
+  const onTagSelectedFaces = useCallback(
+    (targetName: string) => {
+      if (!selectedFaces.length) return;
+
+      axios
+        .post(`/faces/train/${targetName}/classify`, {
+          training_files: selectedFaces,
+        })
+        .then((resp) => {
+          if (resp.status === 200) {
+            toast.success(t("toast.success.taggedFaces"), {
+              position: "top-center",
+            });
+            refreshFaces();
+            setSelectedFaces([]);
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.taggingFailed", { errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [selectedFaces, refreshFaces, t],
+  );
+
   // keyboard
 
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -385,6 +441,25 @@ export default function FaceLibrary() {
                 {t("button.unselect", { ns: "common" })}
               </div>
             </div>
+            {pageToggle === "train" && (
+              <FaceSelectionDialog
+                faceNames={faces}
+                onTrainAttempt={onTagSelectedFaces}
+              >
+                <Button className="flex gap-2" variant="secondary">
+                  <LuPencil className="size-7 rounded-md p-1 text-secondary-foreground" />
+                  {isDesktop && t("button.tagSelected")}
+                </Button>
+              </FaceSelectionDialog>
+            )}
+            <Button
+              className="flex gap-2"
+              variant="outline"
+              onClick={onMarkFalsePositive}
+            >
+              <LuRefreshCw className="size-7 rounded-md p-1 text-secondary-foreground" />
+              {isDesktop && t("button.markFalsePositive")}
+            </Button>
             <Button
               className="flex gap-2"
               onClick={() =>
@@ -716,16 +791,16 @@ function TrainingGrid({
         const event = events?.find((ev) => ev.id == key);
         return (
           <div key={key} className="aspect-square w-full">
-            <FaceAttemptGroup
-              config={config}
-              group={group}
-              event={event}
-              faceNames={faceNames}
-              selectedFaces={selectedFaces}
-              onClickFaces={onClickFaces}
-              onRefresh={onRefresh}
-            />
-          </div>
+          <FaceAttemptGroup
+            config={config}
+            group={group}
+            event={event}
+            faceNames={faceNames}
+            selectedFaces={selectedFaces}
+            onClickFaces={onClickFaces}
+            onRefresh={onRefresh}
+          />
+        </div>
         );
       })}
     </div>
@@ -831,6 +906,73 @@ function FaceAttemptGroup({
     [onRefresh, t],
   );
 
+  const onTagSelection = useCallback(
+    (trainingFiles: string[], trainName: string) => {
+      axios
+        .post(`/faces/train/${trainName}/classify`, {
+          training_files: trainingFiles,
+        })
+        .then((resp) => {
+          if (resp.status == 200) {
+            toast.success(t("toast.success.taggedFaces"), {
+              position: "top-center",
+              closeButton: true,
+            });
+            onRefresh();
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.taggingFailed", { errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [onRefresh, t],
+  );
+
+  const onMarkFalsePositive = useCallback(
+    (trainingFiles: string[]) => {
+      const predictedName = group[0]?.name;
+
+      if (!predictedName || predictedName === "unknown") {
+        toast.error(t("toast.error.markFalsePositiveUnavailable"), {
+          position: "top-center",
+        });
+        return;
+      }
+
+      axios
+        .post(`/faces/${predictedName}/flag_false_positive`, {
+          ids: trainingFiles,
+        })
+        .then((resp) => {
+          if (resp.status === 200) {
+            toast.success(t("toast.success.markedFalsePositive"), {
+              position: "top-center",
+            });
+            onRefresh();
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(
+            t("toast.error.markFalsePositiveFailed", { errorMessage }),
+            {
+              position: "top-center",
+            },
+          );
+        });
+    },
+    [group, onRefresh, t],
+  );
+
   const onReprocess = useCallback(
     (data: ClassificationItemData) => {
       axios
@@ -901,6 +1043,9 @@ function FaceAttemptGroup({
       i18nLibrary="views/faceLibrary"
       objectType="person"
       noClassificationLabel="details.unknown"
+      faceNames={faceNames}
+      onTagSelectedFaces={onTagSelection}
+      onMarkFalsePositive={onMarkFalsePositive}
       onClick={(data) => {
         if (data) {
           onClickFaces([data.filename], true);

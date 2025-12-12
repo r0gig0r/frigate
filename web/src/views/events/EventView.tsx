@@ -53,9 +53,14 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FilterList, LAST_24_HOURS_KEY } from "@/types/filter";
 import { GiSoundWaves } from "react-icons/gi";
+import { FaUserCircle } from "react-icons/fa";
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import { useTimelineZoom } from "@/hooks/use-timeline-zoom";
 import { useTranslation } from "react-i18next";
+import SearchDetailDialog, {
+  SearchTab,
+} from "@/components/overlay/detail/SearchDetailDialog";
+import { SearchResult } from "@/types/search";
 
 type EventViewProps = {
   reviewItems?: SegmentedReviewData;
@@ -98,6 +103,83 @@ export default function EventView({
   const { t } = useTranslation(["views/events"]);
   const { data: config } = useSWR<FrigateConfig>("config");
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [detailDialogTab, setDetailDialogTab] = useState<SearchTab>(
+    "tracking_details",
+  );
+  const [selectedReview, setSelectedReview] = useState<ReviewSegment | undefined>();
+
+  // Get the first detection ID from the selected review segment
+  const firstDetectionId = useMemo(() => {
+    if (!selectedReview?.data?.detections?.length) return null;
+    return selectedReview.data.detections[0];
+  }, [selectedReview]);
+
+  // Define Event type from API (subset of what we need)
+  type EventResponse = {
+    id: string;
+    label: string;
+    sub_label?: string;
+    camera: string;
+    start_time: number;
+    end_time?: number;
+    zones: string[];
+    has_clip: boolean;
+    has_snapshot: boolean;
+    plus_id?: string;
+    data: {
+      top_score?: number;
+      score?: number;
+      box?: number[];
+      region?: number[];
+      type?: string;
+      attributes?: Array<{ box: number[]; label: string; score: number }>;
+      [key: string]: unknown;
+    };
+  };
+
+  // Fetch the specific event by its ID
+  const { data: eventForReview } = useSWR<EventResponse>(
+    firstDetectionId ? `events/${firstDetectionId}` : null,
+    { revalidateOnFocus: false }
+  );
+
+  // Convert EventResponse to SearchResult format
+  const detailSearch = useMemo<SearchResult | undefined>(() => {
+    if (!eventForReview) return undefined;
+
+    const event = eventForReview;
+    return {
+      id: event.id,
+      camera: event.camera,
+      start_time: event.start_time,
+      end_time: event.end_time,
+      score: event.data.score ?? event.data.top_score ?? 0,
+      label: event.label,
+      sub_label: event.sub_label,
+      thumb_path: undefined,
+      plus_id: event.plus_id,
+      has_snapshot: event.has_snapshot,
+      has_clip: event.has_clip,
+      zones: event.zones,
+      search_source: "thumbnail" as const,
+      search_distance: 0,
+      top_score: event.data.top_score ?? event.data.score ?? 0,
+      data: {
+        top_score: event.data.top_score ?? 0,
+        score: event.data.score ?? 0,
+        sub_label_score: (event.data as { sub_label_score?: number }).sub_label_score,
+        region: event.data.region ?? [0, 0, 0, 0],
+        box: event.data.box ?? [0, 0, 0, 0],
+        attributes: event.data.attributes as [{ box: number[]; label: string; score: number }] | undefined,
+        area: 0,
+        ratio: 1,
+        type: (event.data.type as "object" | "audio" | "manual") ?? "object",
+        average_estimated_speed: 0,
+        velocity_angle: 0,
+        path_data: [],
+      },
+    };
+  }, [eventForReview]);
 
   // review counts
 
@@ -418,6 +500,10 @@ export default function EventView({
             onSelectAllReviews={onSelectAllReviews}
             setSelectedReviews={setSelectedReviews}
             pullLatestData={pullLatestData}
+            detailDialogTab={detailDialogTab}
+            setDetailDialogTab={setDetailDialogTab}
+            detailSearch={detailSearch}
+            setSelectedReview={setSelectedReview}
           />
         )}
         {severity == "significant_motion" && (
@@ -465,6 +551,10 @@ type DetectionReviewProps = {
   onSelectAllReviews: () => void;
   setSelectedReviews: (reviews: ReviewSegment[]) => void;
   pullLatestData: () => void;
+  detailDialogTab: SearchTab;
+  setDetailDialogTab: (tab: SearchTab) => void;
+  detailSearch: SearchResult | undefined;
+  setSelectedReview: (review: ReviewSegment | undefined) => void;
 };
 function DetectionReview({
   contentRef,
@@ -484,6 +574,10 @@ function DetectionReview({
   onSelectAllReviews,
   setSelectedReviews,
   pullLatestData,
+  detailDialogTab,
+  setDetailDialogTab,
+  detailSearch,
+  setSelectedReview,
 }: DetectionReviewProps) {
   const { t } = useTranslation(["views/events"]);
 
@@ -716,6 +810,17 @@ function DetectionReview({
 
   return (
     <>
+      <SearchDetailDialog
+        search={detailSearch}
+        page={detailDialogTab}
+        setSearchPage={setDetailDialogTab}
+        setSearch={(search) => {
+          if (!search) {
+            setSelectedReview(undefined);
+          }
+        }}
+        setInputFocused={() => {}}
+      />
       <div
         ref={contentRef}
         className="no-scrollbar flex flex-1 flex-wrap content-start gap-2 overflow-y-auto md:gap-4"
@@ -762,7 +867,7 @@ function DetectionReview({
                     }
                     className="review-item relative rounded-lg"
                   >
-                    <div className="aspect-video overflow-hidden rounded-lg">
+                    <div className="aspect-video overflow-hidden rounded-lg relative">
                       <PreviewThumbnailPlayer
                         review={value}
                         allPreviews={relevantPreviews}
@@ -778,6 +883,18 @@ function DetectionReview({
                           onSelectReview(review, ctrl, detail);
                         }}
                       />
+                      {/* Face Recognition Icon - bottom-right corner */}
+                      <button
+                        className="absolute bottom-2 right-2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 transition-colors z-10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailDialogTab("face_recognition");
+                          setSelectedReview(value);
+                        }}
+                        title="Face Recognition"
+                      >
+                        <FaUserCircle className="size-4 text-white" />
+                      </button>
                     </div>
                     <div
                       className={cn(

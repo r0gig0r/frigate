@@ -17,6 +17,9 @@ import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { useNavigate } from "react-router-dom";
 import { HiSquare2Stack } from "react-icons/hi2";
 import { ImageShadowOverlay } from "../overlay/ImageShadowOverlay";
+import FaceSelectionDialog from "@/components/overlay/FaceSelectionDialog";
+import AddFaceIcon from "@/components/icons/AddFaceIcon";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogContent,
@@ -184,6 +187,9 @@ type GroupedClassificationCardProps = {
   objectType: string;
   noClassificationLabel?: string;
   onClick: (data: ClassificationItemData | undefined) => void;
+  faceNames?: string[];
+  onTagSelectedFaces?: (files: string[], name: string) => void;
+  onMarkFalsePositive?: (files: string[]) => void;
   children?: (data: ClassificationItemData) => React.ReactNode;
 };
 export function GroupedClassificationCard({
@@ -194,11 +200,15 @@ export function GroupedClassificationCard({
   i18nLibrary,
   noClassificationLabel = "details.none",
   onClick,
+  faceNames = [],
+  onTagSelectedFaces,
+  onMarkFalsePositive,
   children,
 }: GroupedClassificationCardProps) {
   const navigate = useNavigate();
   const { t } = useTranslation(["views/explore", i18nLibrary]);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedGroupFaces, setSelectedGroupFaces] = useState<string[]>([]);
 
   // data
 
@@ -269,6 +279,30 @@ export function GroupedClassificationCard({
     ? DialogDescription
     : MobilePageDescription;
 
+  const toggleSelection = (filename: string) => {
+    setSelectedGroupFaces((current) =>
+      current.includes(filename)
+        ? current.filter((id) => id !== filename)
+        : [...current, filename],
+    );
+  };
+
+  const clearSelection = () => setSelectedGroupFaces([]);
+
+  const handleTagSelection = (name: string) => {
+    if (!selectedGroupFaces.length || !onTagSelectedFaces) return;
+
+    onTagSelectedFaces(selectedGroupFaces, name);
+    clearSelection();
+  };
+
+  const handleMarkFalsePositive = () => {
+    if (!selectedGroupFaces.length || !onMarkFalsePositive) return;
+
+    onMarkFalsePositive(selectedGroupFaces);
+    clearSelection();
+  };
+
   return (
     <>
       <ClassificationCard
@@ -290,6 +324,7 @@ export function GroupedClassificationCard({
         onOpenChange={(open) => {
           if (!open) {
             setDetailOpen(false);
+            clearSelection();
           }
         }}
       >
@@ -384,6 +419,37 @@ export function GroupedClassificationCard({
                 </div>
               )}
             </Header>
+            {selectedGroupFaces.length > 0 && (
+              <div className="mx-2 mt-1 flex flex-col gap-2 rounded-lg border bg-muted/40 p-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-secondary-foreground">
+                  {t("selected", {
+                    ns: "views/event",
+                    count: selectedGroupFaces.length,
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <FaceSelectionDialog
+                    faceNames={faceNames}
+                    onTrainAttempt={handleTagSelection}
+                  >
+                    <button className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-secondary">
+                      <AddFaceIcon className="size-4" />
+                      {t("trainFaceAs", { ns: i18nLibrary })}
+                    </button>
+                  </FaceSelectionDialog>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleMarkFalsePositive}
+                  >
+                    {t("button.markFalsePositive", { ns: i18nLibrary })}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={clearSelection}>
+                    {t("button.unselect", { ns: "common" })}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div
               className={cn(
                 "grid w-full auto-rows-min grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 2xl:grid-cols-8",
@@ -396,9 +462,9 @@ export function GroupedClassificationCard({
                   <ClassificationCard
                     data={data}
                     threshold={threshold}
-                    selected={false}
+                    selected={selectedGroupFaces.includes(data.filename)}
                     i18nLibrary={i18nLibrary}
-                    onClick={() => {}}
+                    onClick={() => toggleSelection(data.filename)}
                   >
                     {children?.(data)}
                   </ClassificationCard>

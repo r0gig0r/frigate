@@ -51,7 +51,13 @@
     "renameFace": "Rename Face",
     "deleteFace": "Delete Face",
     "uploadImage": "Upload Image",
-    "reprocessFace": "Reprocess Face"
+    "reprocessFace": "Reprocess Face",
+    "reprocessEventFace": "Re-run face analysis",
+    "reprocessingEventFace": "Reprocessing face…",
+    "tagSelected": "Tag Selected",
+    "markFalsePositive": "Mark False Positive",
+    "trainFace": "Train Face",
+    "trainFromEvent": "Train and Tag from Event"
   },
   "imageEntry": {
     "validation": {
@@ -74,7 +80,11 @@
       "deletedName_one": "{{count}} face has been successfully deleted.",
       "deletedName_other": "{{count}} faces have been successfully deleted.",
       "renamedFace": "Successfully renamed face to {{name}}",
+      "reprocessedEventFace": "Reprocessed event and matched {{face}} (score: {{score}})",
+      "reprocessedEventFaceGeneric": "Reprocessed event for face analysis",
       "trainedFace": "Successfully trained face.",
+      "taggedFaces": "Faces tagged and queued for training.",
+      "markedFalsePositive": "Marked as false positive and retraining queued.",
       "updatedFaceScore": "Successfully updated face score to {{name}} ({{score}})."
     },
     "error": {
@@ -83,7 +93,11 @@
       "deleteFaceFailed": "Failed to delete: {{errorMessage}}",
       "deleteNameFailed": "Failed to delete name: {{errorMessage}}",
       "renameFaceFailed": "Failed to rename face: {{errorMessage}}",
+      "reprocessEventFaceFailed": "Failed to reprocess face analysis: {{errorMessage}}",
       "trainFailed": "Failed to train: {{errorMessage}}",
+      "taggingFailed": "Failed to tag faces: {{errorMessage}}",
+      "markFalsePositiveFailed": "Failed to flag false positives: {{errorMessage}}",
+      "markFalsePositiveUnavailable": "Cannot mark this detection as a false positive because it is unrecognized.",
       "updateFaceScoreFailed": "Failed to update face score: {{errorMessage}}"
     }
   }

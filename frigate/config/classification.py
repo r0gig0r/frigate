@@ -195,10 +195,11 @@ class FaceRecognitionConfig(FrigateBaseModel):
         le=1.0,
     )
     min_area: int = Field(
-        default=750, title="Min area of face box to consider running face recognition."
+        default=2500,
+        title="Min area of face box to consider running face recognition.",
     )
     min_faces: int = Field(
-        default=1,
+        default=3,
         gt=0,
         le=6,
         title="Min face recognitions for the sub label to be applied to the person object.",
@@ -216,12 +217,28 @@ class FaceRecognitionConfig(FrigateBaseModel):
         title="The device key to use for face recognition.",
         description="This is an override, to target a specific device. See https://onnxruntime.ai/docs/execution-providers/ for more information",
     )
+    device_pool: Optional[List[str]] = Field(
+        default=None,
+        title="List of GPU device ids to balance face recognition workloads across.",
+    )
+    min_quality_variance: Optional[float] = Field(
+        default=120.0,
+        ge=0,
+        title="Minimum Laplacian variance required to use a face sample for training.",
+    )
+    min_quality_faces: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        title="Minimum number of high-quality faces required before applying a sub label.",
+    )
 
 
 class CameraFaceRecognitionConfig(FrigateBaseModel):
     enabled: bool = Field(default=False, title="Enable face recognition.")
     min_area: int = Field(
-        default=750, title="Min area of face box to consider running face recognition."
+        default=2500,
+        title="Min area of face box to consider running face recognition.",
     )
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())

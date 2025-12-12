@@ -148,11 +148,18 @@ def train_face(request: Request, name: str, body: dict = None):
         )
 
     json: dict[str, Any] = body or {}
+    training_files = [
+        sanitize_filename(file_name)
+        for file_name in json.get("training_files", [])
+        if file_name
+    ]
     training_file_name = sanitize_filename(json.get("training_file", ""))
-    training_file = os.path.join(FACE_DIR, f"train/{training_file_name}")
+    if training_file_name:
+        training_files.append(training_file_name)
+    training_paths = [os.path.join(FACE_DIR, f"train/{file}") for file in training_files]
     event_id = json.get("event_id")
 
-    if not training_file_name and not event_id:
+    if not training_files and not event_id:
         return JSONResponse(
             content=(
                 {
@@ -163,26 +170,31 @@ def train_face(request: Request, name: str, body: dict = None):
             status_code=400,
         )
 
-    if training_file_name and not os.path.isfile(training_file):
-        return JSONResponse(
-            content=(
-                {
-                    "success": False,
-                    "message": f"Invalid filename or no file exists: {training_file_name}",
-                }
-            ),
-            status_code=404,
-        )
+    for training_file in training_paths:
+        if training_files and not os.path.isfile(training_file):
+            return JSONResponse(
+                content=(
+                    {
+                        "success": False,
+                        "message": f"Invalid filename or no file exists: {os.path.basename(training_file)}",
+                    }
+                ),
+                status_code=404,
+            )
 
     sanitized_name = sanitize_filename(name)
-    new_name = f"{sanitized_name}-{datetime.datetime.now().timestamp()}.webp"
     new_file_folder = os.path.join(FACE_DIR, f"{sanitized_name}")
 
     os.makedirs(new_file_folder, exist_ok=True)
 
-    if training_file_name:
+    saved_files: list[str] = []
+
+    for training_file in training_paths:
+        new_name = f"{sanitized_name}-{datetime.datetime.now().timestamp()}.webp"
         shutil.move(training_file, os.path.join(new_file_folder, new_name))
-    else:
+        saved_files.append(new_name)
+
+    if event_id:
         try:
             event: Event = Event.get(Event.id == event_id)
         except DoesNotExist:
@@ -209,10 +221,13 @@ def train_face(request: Request, name: str, body: dict = None):
         y2 = y1 + int(face_box[3] * detect_config.height) - 4
         face = snapshot[y1:y2, x1:x2]
         success = True
+        event_saved: str | None = None
 
         if face.size > 0:
             try:
+                new_name = f"{sanitized_name}-{datetime.datetime.now().timestamp()}.webp"
                 cv2.imwrite(os.path.join(new_file_folder, new_name), face)
+                event_saved = new_name
                 success = True
             except Exception:
                 pass
@@ -228,6 +243,9 @@ def train_face(request: Request, name: str, body: dict = None):
                 status_code=404,
             )
 
+        if event_saved and event_saved not in saved_files:
+            saved_files.append(event_saved)
+
     context: EmbeddingsContext = request.app.embeddings
     context.clear_face_classifier()
 
@@ -235,10 +253,64 @@ def train_face(request: Request, name: str, body: dict = None):
         content=(
             {
                 "success": True,
-                "message": f"Successfully saved {training_file_name} as {new_name}.",
+                "message": "Successfully saved training faces.",
+                "files": saved_files,
             }
         ),
         status_code=200,
+    )
+
+
+@router.put(
+    "/faces/reprocess_event/{event_id}",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Reprocess a face recognition attempt for an event",
+    description="""Extracts the snapshot for an event and re-runs face recognition on it.
+    Requires face recognition to be enabled. Returns the raw recognition payload so
+    the caller can inspect scores and suggested identities.""",
+)
+def reprocess_event_face(request: Request, event_id: str):
+    if not request.app.frigate_config.face_recognition.enabled:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Face recognition is not enabled.", "success": False},
+        )
+
+    try:
+        event = Event.get(Event.id == event_id)
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": f"Event {event_id} not found."},
+            status_code=404,
+        )
+
+    snapshot = get_event_snapshot(event)
+
+    if snapshot is None or snapshot.size == 0:
+        return JSONResponse(
+            content={"success": False, "message": "No snapshot available for event."},
+            status_code=404,
+        )
+
+    # Encode snapshot to bytes for sending to face detection
+    _, encoded = cv2.imencode(".jpg", snapshot)
+    image_bytes = encoded.tobytes()
+
+    context: EmbeddingsContext = request.app.embeddings
+    response = context.detect_recognize_faces(event_id, image_bytes)
+
+    if not isinstance(response, dict):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Could not process face reprocessing request.",
+            },
+        )
+
+    return JSONResponse(
+        status_code=200 if response.get("success", True) else 400,
+        content=response,
     )
 
 
@@ -356,6 +428,66 @@ def deregister_faces(request: Request, name: str, body: DeleteFaceImagesBody):
     context.delete_face_ids(name, map(lambda file: sanitize_filename(file), body.ids))
     return JSONResponse(
         content=({"success": True, "message": "Successfully deleted faces."}),
+        status_code=200,
+    )
+
+
+@router.post(
+    "/faces/{name}/flag_false_positive",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Mark face recognitions as false positives",
+    description="""Moves selected face images back into the training pool and clears the classifier.
+    Returns suggested identities for each moved image so mis-tagged events can be corrected.""",
+)
+def mark_false_positive(request: Request, name: str, body: DeleteFaceImagesBody):
+    if not request.app.frigate_config.face_recognition.enabled:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Face recognition is not enabled.", "success": False},
+        )
+
+    context: EmbeddingsContext = request.app.embeddings
+    face_folder = os.path.join(FACE_DIR, sanitize_filename(name))
+    train_folder = os.path.join(FACE_DIR, "train")
+    os.makedirs(train_folder, exist_ok=True)
+
+    moved: list[str] = []
+    suggestions: list[dict[str, Any]] = []
+
+    for img_id in body.ids:
+        sanitized = sanitize_filename(img_id)
+        src = os.path.join(face_folder, sanitized)
+
+        if not os.path.isfile(src):
+            continue
+
+        dest = os.path.join(train_folder, f"{name}-{sanitized}")
+        shutil.move(src, dest)
+        moved.append(os.path.basename(dest))
+
+        res = context.reprocess_face(dest)
+        if isinstance(res, dict) and res.get("success") and res.get("face_name"):
+            suggestions.append(
+                {
+                    "training_file": os.path.basename(dest),
+                    "suggested_face": res.get("face_name"),
+                    "score": res.get("score"),
+                }
+            )
+
+    if os.path.isdir(face_folder) and len(os.listdir(face_folder)) == 0:
+        os.rmdir(face_folder)
+
+    context.clear_face_classifier()
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "Marked faces as false positives and queued retraining.",
+            "moved": moved,
+            "suggestions": suggestions,
+        },
         status_code=200,
     )
 
