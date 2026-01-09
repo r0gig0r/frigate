@@ -53,6 +53,7 @@
   "faceRecognition": "Face recognition",
   "selected_one": "{{count}} selected",
   "selected_other": "{{count}} selected",
+  "select_all": "All",
   "camera": "Camera",
   "detected": "detected",
   "normalActivity": "Normal",

@@ -330,7 +330,8 @@
         "audioCodecRequired": "An audio stream is required to support audio detection.",
         "restreamingWarning": "Reducing connections to the camera for the record stream may increase CPU usage slightly.",
         "brands": {
-          "reolink-rtsp": "Reolink RTSP is not recommended. Enable HTTP in the camera's firmware settings and restart the wizard."
+          "reolink-rtsp": "Reolink RTSP is not recommended. Enable HTTP in the camera's firmware settings and restart the wizard.",
+          "reolink-http": "Reolink HTTP streams should use FFmpeg for better compatibility. Enable 'Use stream compatibility mode' for this stream."
         },
         "dahua": {
           "substreamWarning": "Substream 1 is locked to a low resolution. Many Dahua / Amcrest / EmpireTech cameras support additional substreams that need to be enabled in the camera's settings. It is recommended to check and utilize those streams if available."
@@ -712,6 +713,8 @@
         "password": {
           "title": "Password",
           "placeholder": "Enter password",
+          "show": "Show password",
+          "hide": "Hide password",
           "confirm": {
             "title": "Confirm Password",
             "placeholder": "Confirm Password"
@@ -723,6 +726,13 @@
             "strong": "Strong",
             "veryStrong": "Very Strong"
           },
+          "requirements": {
+            "title": "Password requirements:",
+            "length": "At least 8 characters",
+            "uppercase": "At least one uppercase letter",
+            "digit": "At least one digit",
+            "special": "At least one special character (!@#$%^&*(),.?\":{}|<>)"
+          },
           "match": "Passwords match",
           "notMatch": "Passwords don't match"
         },
@@ -732,6 +742,10 @@
           "confirm": {
             "placeholder": "Re-enter new password"
           }
+        },
+        "currentPassword": {
+          "title": "Current Password",
+          "placeholder": "Enter your current password"
         },
         "usernameIsRequired": "Username is required",
         "passwordIsRequired": "Password is required"
@@ -750,9 +764,14 @@
       "passwordSetting": {
         "cannotBeEmpty": "Password cannot be empty",
         "doNotMatch": "Passwords do not match",
+        "currentPasswordRequired": "Current password is required",
+        "incorrectCurrentPassword": "Current password is incorrect",
+        "passwordVerificationFailed": "Failed to verify password",
         "updatePassword": "Update Password for {{username}}",
         "setPassword": "Set Password",
-        "desc": "Create a strong password to secure this account."
+        "desc": "Create a strong password to secure this account.",
+        "multiDeviceWarning": "Any other devices where you are logged in will be required to re-login within {{refresh_time}}.",
+        "multiDeviceAdmin": "You can also force all users to re-authenticate immediately by rotating your JWT secret."
       },
       "changeRole": {
         "title": "Change User Role",
@@ -1045,6 +1064,54 @@
         "updateTriggerFailed": "Failed to update trigger: {{errorMessage}}",
         "deleteTriggerFailed": "Failed to delete trigger: {{errorMessage}}"
       }
+    }
+  },
+  "maintenance": {
+    "title": "Maintenance",
+    "sync": {
+      "title": "Media Sync",
+      "desc": "Frigate will periodically clean up media on a regular schedule according to your retention configuration. It is normal to see a few orphaned files as Frigate runs. Use this feature to remove orphaned media files from disk that are no longer referenced in the database.",
+      "started": "Media sync started.",
+      "alreadyRunning": "A sync job is already running",
+      "error": "Failed to start sync",
+      "currentStatus": "Status",
+      "jobId": "Job ID",
+      "startTime": "Start Time",
+      "endTime": "End Time",
+      "statusLabel": "Status",
+      "results": "Results",
+      "errorLabel": "Error",
+      "mediaTypes": "Media Types",
+      "allMedia": "All Media",
+      "dryRun": "Dry Run",
+      "dryRunEnabled": "No files will be deleted",
+      "dryRunDisabled": "Files will be deleted",
+      "force": "Force",
+      "forceDesc": "Bypass safety threshold and complete sync even if more than 50% of the files would be deleted.",
+      "running": "Sync Running...",
+      "start": "Start Sync",
+      "inProgress": "Sync is in progress. This page is disabled.",
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "notRunning": "Not Running"
+      },
+      "resultsFields": {
+        "filesChecked": "Files Checked",
+        "orphansFound": "Orphans Found",
+        "orphansDeleted": "Orphans Deleted",
+        "aborted": "Aborted. Deletion would exceed safety threshold.",
+        "error": "Error",
+        "totals": "Totals"
+      },
+      "event_snapshots": "Tracked Object Snapshots",
+      "event_thumbnails": "Tracked Object Thumbnails",
+      "review_thumbnails": "Review Thumbnails",
+      "previews": "Previews",
+      "exports": "Exports",
+      "recordings": "Recordings"
     }
   }
 }

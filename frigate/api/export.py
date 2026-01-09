@@ -4,10 +4,10 @@ import logging
 import random
 import string
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import psutil
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pathvalidate import sanitize_filepath
 from peewee import DoesNotExist
@@ -19,8 +19,17 @@ from frigate.api.auth import (
     require_camera_access,
     require_role,
 )
+from frigate.api.defs.request.export_case_body import (
+    ExportCaseAssignBody,
+    ExportCaseCreateBody,
+    ExportCaseUpdateBody,
+)
 from frigate.api.defs.request.export_recordings_body import ExportRecordingsBody
 from frigate.api.defs.request.export_rename_body import ExportRenameBody
+from frigate.api.defs.response.export_case_response import (
+    ExportCaseModel,
+    ExportCasesResponse,
+)
 from frigate.api.defs.response.export_response import (
     ExportModel,
     ExportsResponse,
@@ -29,7 +38,7 @@ from frigate.api.defs.response.export_response import (
 from frigate.api.defs.response.generic_response import GenericResponse
 from frigate.api.defs.tags import Tags
 from frigate.const import CLIPS_DIR, EXPORT_DIR
-from frigate.models import Export, Previews, Recordings
+from frigate.models import Export, ExportCase, Previews, Recordings
 from frigate.record.export import (
     PlaybackFactorEnum,
     PlaybackSourceEnum,
@@ -52,15 +61,180 @@ router = APIRouter(tags=[Tags.export])
 )
 def get_exports(
     allowed_cameras: List[str] = Depends(get_allowed_cameras_for_filter),
+    export_case_id: Optional[str] = None,
+    cameras: Optional[str] = Query(default="all"),
+    start_date: Optional[float] = None,
+    end_date: Optional[float] = None,
 ):
-    exports = (
-        Export.select()
-        .where(Export.camera << allowed_cameras)
-        .order_by(Export.date.desc())
-        .dicts()
-        .iterator()
-    )
+    query = Export.select().where(Export.camera << allowed_cameras)
+
+    if export_case_id is not None:
+        if export_case_id == "unassigned":
+            query = query.where(Export.export_case.is_null(True))
+        else:
+            query = query.where(Export.export_case == export_case_id)
+
+    if cameras and cameras != "all":
+        requested = set(cameras.split(","))
+        filtered_cameras = list(requested.intersection(allowed_cameras))
+        if not filtered_cameras:
+            return JSONResponse(content=[])
+        query = query.where(Export.camera << filtered_cameras)
+
+    if start_date is not None:
+        query = query.where(Export.date >= start_date)
+
+    if end_date is not None:
+        query = query.where(Export.date <= end_date)
+
+    exports = query.order_by(Export.date.desc()).dicts().iterator()
     return JSONResponse(content=[e for e in exports])
+
+
+@router.get(
+    "/cases",
+    response_model=ExportCasesResponse,
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Get export cases",
+    description="Gets all export cases from the database.",
+)
+def get_export_cases():
+    cases = (
+        ExportCase.select().order_by(ExportCase.created_at.desc()).dicts().iterator()
+    )
+    return JSONResponse(content=[c for c in cases])
+
+
+@router.post(
+    "/cases",
+    response_model=ExportCaseModel,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Create export case",
+    description="Creates a new export case.",
+)
+def create_export_case(body: ExportCaseCreateBody):
+    case = ExportCase.create(
+        id="".join(random.choices(string.ascii_lowercase + string.digits, k=12)),
+        name=body.name,
+        description=body.description,
+        created_at=Path().stat().st_mtime,
+        updated_at=Path().stat().st_mtime,
+    )
+    return JSONResponse(content=model_to_dict(case))
+
+
+@router.get(
+    "/cases/{case_id}",
+    response_model=ExportCaseModel,
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Get a single export case",
+    description="Gets a specific export case by ID.",
+)
+def get_export_case(case_id: str):
+    try:
+        case = ExportCase.get(ExportCase.id == case_id)
+        return JSONResponse(content=model_to_dict(case))
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": "Export case not found"},
+            status_code=404,
+        )
+
+
+@router.patch(
+    "/cases/{case_id}",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Update export case",
+    description="Updates an existing export case.",
+)
+def update_export_case(case_id: str, body: ExportCaseUpdateBody):
+    try:
+        case = ExportCase.get(ExportCase.id == case_id)
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": "Export case not found"},
+            status_code=404,
+        )
+
+    if body.name is not None:
+        case.name = body.name
+    if body.description is not None:
+        case.description = body.description
+
+    case.save()
+
+    return JSONResponse(
+        content={"success": True, "message": "Successfully updated export case."}
+    )
+
+
+@router.delete(
+    "/cases/{case_id}",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Delete export case",
+    description="""Deletes an export case.\n    Exports that reference this case will have their export_case set to null.\n    """,
+)
+def delete_export_case(case_id: str):
+    try:
+        case = ExportCase.get(ExportCase.id == case_id)
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": "Export case not found"},
+            status_code=404,
+        )
+
+    # Unassign exports from this case but keep the exports themselves
+    Export.update(export_case=None).where(Export.export_case == case).execute()
+
+    case.delete_instance()
+
+    return JSONResponse(
+        content={"success": True, "message": "Successfully deleted export case."}
+    )
+
+
+@router.patch(
+    "/export/{export_id}/case",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Assign export to case",
+    description=(
+        "Assigns an export to a case, or unassigns it if export_case_id is null."
+    ),
+)
+async def assign_export_case(
+    export_id: str,
+    body: ExportCaseAssignBody,
+    request: Request,
+):
+    try:
+        export: Export = Export.get(Export.id == export_id)
+        await require_camera_access(export.camera, request=request)
+    except DoesNotExist:
+        return JSONResponse(
+            content={"success": False, "message": "Export not found."},
+            status_code=404,
+        )
+
+    if body.export_case_id is not None:
+        try:
+            ExportCase.get(ExportCase.id == body.export_case_id)
+        except DoesNotExist:
+            return JSONResponse(
+                content={"success": False, "message": "Export case not found."},
+                status_code=404,
+            )
+        export.export_case = body.export_case_id
+    else:
+        export.export_case = None
+
+    export.save()
+
+    return JSONResponse(
+        content={"success": True, "message": "Successfully updated export case."}
+    )
 
 
 @router.post(
@@ -92,6 +266,16 @@ def export_recording(
     playback_source = body.source
     friendly_name = body.name
     existing_image = sanitize_filepath(body.image_path) if body.image_path else None
+
+    export_case_id = body.export_case_id
+    if export_case_id is not None:
+        try:
+            ExportCase.get(ExportCase.id == export_case_id)
+        except DoesNotExist:
+            return JSONResponse(
+                content={"success": False, "message": "Export case not found"},
+                status_code=404,
+            )
 
     # Ensure that existing_image is a valid path
     if existing_image and not existing_image.startswith(CLIPS_DIR):
@@ -161,6 +345,7 @@ def export_recording(
             if playback_source in PlaybackSourceEnum.__members__.values()
             else PlaybackSourceEnum.recordings
         ),
+        export_case_id,
     )
     exporter.start()
     return JSONResponse(

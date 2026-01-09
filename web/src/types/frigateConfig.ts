@@ -205,7 +205,6 @@ export interface CameraConfig {
       days: number;
       mode: string;
     };
-    sync_recordings: boolean;
   };
   review: {
     alerts: {
@@ -550,7 +549,6 @@ export interface FrigateConfig {
       days: number;
       mode: string;
     };
-    sync_recordings: boolean;
   };
 
   rtmp: {

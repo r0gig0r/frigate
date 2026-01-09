@@ -123,7 +123,7 @@ auth:
   # Optional: Refresh time in seconds (default: shown below)
   # When the session is going to expire in less time than this setting,
   # it will be refreshed back to the session_length.
-  refresh_time: 43200 # 12 hours
+  refresh_time: 1800 # 30 minutes
   # Optional: Rate limiting for login failures to help prevent brute force
   # login attacks (default: shown below)
   # See the docs for more information on valid values
@@ -510,8 +510,6 @@ record:
   # Optional: Number of minutes to wait between cleanup runs (default: shown below)
   # This can be used to reduce the frequency of deleting recording segments from disk if you want to minimize i/o
   expire_interval: 60
-  # Optional: Two-way sync recordings database with disk on startup and once a day (default: shown below).
-  sync_recordings: False
   # Optional: Continuous retention settings
   continuous:
     # Optional: Number of days to retain recordings regardless of tracked objects or motion (default: shown below)
@@ -534,6 +532,8 @@ record:
     # The -r (framerate) dictates how smooth the output video is.
     # So the args would be -vf setpts=0.02*PTS -r 30 in that case.
     timelapse_args: "-vf setpts=0.04*PTS -r 30"
+    # Optional: Global hardware acceleration settings for timelapse exports. (default: inherit)
+    hwaccel_args: auto
   # Optional: Recording Preview Settings
   preview:
     # Optional: Quality of recording preview (default: shown below).
@@ -835,6 +835,11 @@ cameras:
       # Optional: camera specific output args (default: inherit)
       # output_args:
 
+    # Optional: camera specific hwaccel args for timelapse export (default: inherit)
+    # record:
+    #   export:
+    #     hwaccel_args:
+
     # Optional: timeout for highest scoring image before allowing it
     # to be replaced by a newer image. (default: shown below)
     best_image_timeout: 60
@@ -911,7 +916,7 @@ cameras:
       user: admin
       # Optional: password for login.
       password: admin
-      # Optional: Skip TLS verification from the ONVIF server (default: shown below)
+      # Optional: Skip TLS verification and disable digest authentication for the ONVIF server (default: shown below)
       tls_insecure: False
       # Optional: Ignores time synchronization mismatches between the camera and the server during authentication.
       # Using NTP on both ends is recommended and this should only be set to True in a "safe" environment due to the security risk it represents.

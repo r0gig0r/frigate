@@ -64,6 +64,7 @@ class RecordingExporter(threading.Thread):
         end_time: int,
         playback_factor: PlaybackFactorEnum,
         playback_source: PlaybackSourceEnum,
+        export_case_id: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.config = config
@@ -75,6 +76,7 @@ class RecordingExporter(threading.Thread):
         self.end_time = end_time
         self.playback_factor = playback_factor
         self.playback_source = playback_source
+        self.export_case_id = export_case_id
 
         # ensure export thumb dir
         Path(os.path.join(CLIPS_DIR, "export")).mkdir(exist_ok=True)
@@ -226,7 +228,7 @@ class RecordingExporter(threading.Thread):
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
-                    self.config.ffmpeg.hwaccel_args,
+                    self.config.cameras[self.camera].record.export.hwaccel_args,
                     f"-an {ffmpeg_input}",
                     f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart",
                     EncodeTypeEnum.timelapse,
@@ -317,7 +319,7 @@ class RecordingExporter(threading.Thread):
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
-                    self.config.ffmpeg.hwaccel_args,
+                    self.config.cameras[self.camera].record.export.hwaccel_args,
                     f"{TIMELAPSE_DATA_INPUT_ARGS} {ffmpeg_input}",
                     f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart {video_path}",
                     EncodeTypeEnum.timelapse,
@@ -348,17 +350,20 @@ class RecordingExporter(threading.Thread):
         video_path = f"{EXPORT_DIR}/{self.camera}_{filename_start_datetime}-{filename_end_datetime}_{cleaned_export_id}.mp4"
         thumb_path = self.save_thumbnail(self.export_id)
 
-        Export.insert(
-            {
-                Export.id: self.export_id,
-                Export.camera: self.camera,
-                Export.name: export_name,
-                Export.date: self.start_time,
-                Export.video_path: video_path,
-                Export.thumb_path: thumb_path,
-                Export.in_progress: True,
-            }
-        ).execute()
+        export_values = {
+            Export.id: self.export_id,
+            Export.camera: self.camera,
+            Export.name: export_name,
+            Export.date: self.start_time,
+            Export.video_path: video_path,
+            Export.thumb_path: thumb_path,
+            Export.in_progress: True,
+        }
+
+        if self.export_case_id is not None:
+            export_values[Export.export_case] = self.export_case_id
+
+        Export.insert(export_values).execute()
 
         try:
             if self.playback_source == PlaybackSourceEnum.recordings:
