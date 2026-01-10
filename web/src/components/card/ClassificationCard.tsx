@@ -200,6 +200,8 @@ type GroupedClassificationCardProps = {
   onTagSelectedFaces?: (files: string[], name: string) => void;
   onMarkFalsePositive?: (files: string[]) => void;
   children?: (data: ClassificationItemData) => React.ReactNode;
+  /** When true, use the name from filename instead of event.sub_label (for training view) */
+  useFilenameName?: boolean;
 };
 export function GroupedClassificationCard({
   group,
@@ -213,6 +215,7 @@ export function GroupedClassificationCard({
   onTagSelectedFaces,
   onMarkFalsePositive,
   children,
+  useFilenameName = false,
 }: GroupedClassificationCardProps) {
   const navigate = useNavigate();
   const { t } = useTranslation(["views/explore", i18nLibrary]);
@@ -220,6 +223,20 @@ export function GroupedClassificationCard({
   const [selectedGroupFaces, setSelectedGroupFaces] = useState<string[]>([]);
 
   // data
+
+  // Get the actual name from filename (used for "Mark False Positive" logic)
+  const filenameName = useMemo(() => {
+    // Find the best item by score and return its name from filename
+    let best: ClassificationItemData | undefined;
+    group.forEach((item) => {
+      if (item?.name != undefined && item.name != "none") {
+        if (!best?.score || (item.score && best.score < item.score)) {
+          best = item;
+        }
+      }
+    });
+    return best?.name ?? group.at(-1)?.name ?? "unknown";
+  }, [group]);
 
   const bestItem = useMemo<ClassificationItemData | undefined>(() => {
     let best: undefined | ClassificationItemData = undefined;
@@ -240,16 +257,41 @@ export function GroupedClassificationCard({
     }
 
     const bestTyped: ClassificationItemData = best;
+
+    // Determine display name
+    let displayName: string;
+    if (useFilenameName) {
+      // Training view: always use the name from filename
+      if (
+        bestTyped.name &&
+        bestTyped.name !== "unknown" &&
+        bestTyped.name !== "none"
+      ) {
+        displayName = bestTyped.name;
+      } else {
+        displayName = t(noClassificationLabel);
+      }
+    } else if (event?.sub_label && event.sub_label !== "none") {
+      // Event has confirmed recognition
+      displayName = event.sub_label;
+    } else if (
+      bestTyped.name &&
+      bestTyped.name !== "unknown" &&
+      bestTyped.name !== "none"
+    ) {
+      // Use best face's predicted name from filename
+      displayName = bestTyped.name;
+    } else {
+      // Truly unknown
+      displayName = t(noClassificationLabel);
+    }
+
     return {
       ...bestTyped,
-      name: event
-        ? event.sub_label && event.sub_label !== "none"
-          ? event.sub_label
-          : t(noClassificationLabel)
-        : bestTyped.name,
-      score: event?.data?.sub_label_score,
+      name: displayName,
+      score: useFilenameName ? bestTyped.score : (event?.data?.sub_label_score ?? bestTyped.score),
     };
-  }, [group, event, noClassificationLabel, t]);
+  }, [group, event, noClassificationLabel, t, useFilenameName]);
 
   const bestScoreStatus = useMemo(() => {
     if (!bestItem?.score || !threshold) {
@@ -360,10 +402,8 @@ export function GroupedClassificationCard({
                 )}
               >
                 <ContentTitle className="flex items-center gap-2 font-normal capitalize">
-                  {event?.sub_label && event.sub_label !== "none"
-                    ? event.sub_label
-                    : t(noClassificationLabel)}
-                  {event?.sub_label && event.sub_label !== "none" && (
+                  {bestItem?.name ?? t(noClassificationLabel)}
+                  {bestItem?.score != null && filenameName !== "unknown" && (
                     <div className="flex items-center gap-1">
                       <div
                         className={cn(
@@ -372,7 +412,7 @@ export function GroupedClassificationCard({
                           bestScoreStatus == "potential" && "text-orange-400",
                           bestScoreStatus == "unknown" && "text-danger",
                         )}
-                      >{`${Math.round((event.data.sub_label_score || 0) * 100)}%`}</div>
+                      >{`${Math.round((bestItem.score || 0) * 100)}%`}</div>
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
@@ -446,13 +486,15 @@ export function GroupedClassificationCard({
                       {t("trainFaceAs", { ns: i18nLibrary })}
                     </button>
                   </FaceSelectionDialog>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleMarkFalsePositive}
-                  >
-                    {t("button.markFalsePositive", { ns: i18nLibrary })}
-                  </Button>
+                  {filenameName !== "unknown" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleMarkFalsePositive}
+                    >
+                      {t("button.markFalsePositive", { ns: i18nLibrary })}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" onClick={clearSelection}>
                     {t("button.unselect", { ns: "common" })}
                   </Button>

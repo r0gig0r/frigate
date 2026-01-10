@@ -36,6 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import useOptimisticState from "@/hooks/use-optimistic-state";
 import { cn } from "@/lib/utils";
@@ -106,6 +107,31 @@ export default function FaceLibrary() {
   const trainImages = useMemo<string[]>(
     () => faceData?.["train"] || [],
     [faceData],
+  );
+
+  // Training tab state and filtered lists
+  const [trainTab, setTrainTab] = useState<"unrecognized" | "recognized">(
+    "unrecognized",
+  );
+
+  const unrecognizedFaces = useMemo<string[]>(
+    () =>
+      trainImages.filter((img) => {
+        const parts = img.split("-");
+        const name = parts[3];
+        return name === "unknown";
+      }),
+    [trainImages],
+  );
+
+  const recognizedFaces = useMemo<string[]>(
+    () =>
+      trainImages.filter((img) => {
+        const parts = img.split("-");
+        const name = parts[3];
+        return name !== "unknown";
+      }),
+    [trainImages],
   );
 
   // upload
@@ -335,9 +361,16 @@ export default function FaceLibrary() {
             if (selectedFaces.length) {
               setSelectedFaces([]);
             } else {
-              setSelectedFaces([
-                ...(pageToggle === "train" ? trainImages : faceImages),
-              ]);
+              let imagesToSelect: string[];
+              if (pageToggle === "train") {
+                imagesToSelect =
+                  trainTab === "unrecognized"
+                    ? unrecognizedFaces
+                    : recognizedFaces;
+              } else {
+                imagesToSelect = faceImages;
+              }
+              setSelectedFaces([...imagesToSelect]);
             }
 
             return true;
@@ -442,17 +475,26 @@ export default function FaceLibrary() {
               </div>
               {selectedFaces.length <
                 (pageToggle === "train"
-                  ? trainImages.length
+                  ? trainTab === "unrecognized"
+                    ? unrecognizedFaces.length
+                    : recognizedFaces.length
                   : faceImages.length) && (
                 <>
                   <div className="p-1">{"|"}</div>
                   <div
                     className="cursor-pointer p-2 text-primary hover:rounded-lg hover:bg-secondary"
-                    onClick={() =>
-                      setSelectedFaces([
-                        ...(pageToggle === "train" ? trainImages : faceImages),
-                      ])
-                    }
+                    onClick={() => {
+                      let imagesToSelect: string[];
+                      if (pageToggle === "train") {
+                        imagesToSelect =
+                          trainTab === "unrecognized"
+                            ? unrecognizedFaces
+                            : recognizedFaces;
+                      } else {
+                        imagesToSelect = faceImages;
+                      }
+                      setSelectedFaces([...imagesToSelect]);
+                    }}
                   >
                     {t("select_all", { ns: "views/events" })}
                   </div>
@@ -511,15 +553,47 @@ export default function FaceLibrary() {
       ) : (
         pageToggle &&
         (pageToggle == "train" ? (
-          <TrainingGrid
-            config={config}
-            contentRef={contentRef}
-            attemptImages={trainImages}
-            faceNames={faces}
-            selectedFaces={selectedFaces}
-            onClickFaces={onClickFaces}
-            onRefresh={refreshFaces}
-          />
+          <Tabs
+            value={trainTab}
+            onValueChange={(value) => {
+              setTrainTab(value as "unrecognized" | "recognized");
+              setSelectedFaces([]);
+            }}
+            className="flex h-full flex-col"
+          >
+            <TabsList className="mb-2 grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="unrecognized">
+                {t("tabs.unrecognized")} ({unrecognizedFaces.length})
+              </TabsTrigger>
+              <TabsTrigger value="recognized">
+                {t("tabs.recognized")} ({recognizedFaces.length})
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="unrecognized" className="flex-1 overflow-hidden">
+              <TrainingGrid
+                config={config}
+                contentRef={contentRef}
+                attemptImages={unrecognizedFaces}
+                faceNames={faces}
+                selectedFaces={selectedFaces}
+                onClickFaces={onClickFaces}
+                onRefresh={refreshFaces}
+                groupByName={false}
+              />
+            </TabsContent>
+            <TabsContent value="recognized" className="flex-1 overflow-hidden">
+              <TrainingGrid
+                config={config}
+                contentRef={contentRef}
+                attemptImages={recognizedFaces}
+                faceNames={faces}
+                selectedFaces={selectedFaces}
+                onClickFaces={onClickFaces}
+                onRefresh={refreshFaces}
+                groupByName={true}
+              />
+            </TabsContent>
+          </Tabs>
         ) : (
           <FaceGrid
             contentRef={contentRef}
@@ -741,6 +815,7 @@ type TrainingGridProps = {
         ) => FaceLibraryData | undefined),
     opts?: boolean | { revalidate?: boolean },
   ) => Promise<FaceLibraryData | undefined>;
+  groupByName?: boolean;
 };
 function TrainingGrid({
   config,
@@ -750,13 +825,14 @@ function TrainingGrid({
   selectedFaces,
   onClickFaces,
   onRefresh,
+  groupByName = false,
 }: TrainingGridProps) {
   const { t } = useTranslation(["views/faceLibrary"]);
 
   // face data
 
   const faceGroups = useMemo(() => {
-    const groups: { [eventId: string]: ClassificationItemData[] } = {};
+    const groups: { [key: string]: ClassificationItemData[] } = {};
 
     const faces = attemptImages
       .map((image) => {
@@ -777,29 +853,45 @@ function TrainingGrid({
       })
       .filter((v) => v != null);
 
-    faces
-      .sort((a, b) => a.eventId.localeCompare(b.eventId))
-      .reverse()
-      .forEach((face) => {
-        if (groups[face.eventId]) {
-          groups[face.eventId].push(face);
-        } else {
-          groups[face.eventId] = [face];
-        }
-      });
+    if (groupByName) {
+      // Group by face name (for recognized faces tab)
+      faces
+        .sort((a, b) => b.score - a.score) // Sort by score descending
+        .forEach((face) => {
+          const key = face.name;
+          if (groups[key]) {
+            groups[key].push(face);
+          } else {
+            groups[key] = [face];
+          }
+        });
+    } else {
+      // Group by event ID (for unrecognized faces tab)
+      faces
+        .sort((a, b) => a.eventId.localeCompare(b.eventId))
+        .reverse()
+        .forEach((face) => {
+          const key = face.eventId;
+          if (groups[key]) {
+            groups[key].push(face);
+          } else {
+            groups[key] = [face];
+          }
+        });
+    }
 
     return groups;
-  }, [attemptImages]);
+  }, [attemptImages, groupByName]);
 
-  const eventIdsQuery = useMemo(
-    () => Object.keys(faceGroups).join(","),
-    [faceGroups],
+  // Only fetch events when grouping by event ID (not by name)
+  const eventIdsQuery = useMemo(() => {
+    if (groupByName) return "";
+    return Object.keys(faceGroups).join(",");
+  }, [faceGroups, groupByName]);
+
+  const { data: events } = useSWR<Event[]>(
+    eventIdsQuery ? ["event_ids", { ids: eventIdsQuery }] : null,
   );
-
-  const { data: events } = useSWR<Event[]>([
-    "event_ids",
-    { ids: eventIdsQuery },
-  ]);
 
   if (attemptImages.length == 0) {
     return (
@@ -818,7 +910,8 @@ function TrainingGrid({
       )}
     >
       {Object.entries(faceGroups).map(([key, group]) => {
-        const event = events?.find((ev) => ev.id == key);
+        // When grouping by name, key is the face name, not event ID
+        const event = groupByName ? undefined : events?.find((ev) => ev.id == key);
         return (
           <div key={key} className="aspect-square w-full">
           <FaceAttemptGroup
@@ -1076,6 +1169,7 @@ function FaceAttemptGroup({
       faceNames={faceNames}
       onTagSelectedFaces={onTagSelection}
       onMarkFalsePositive={onMarkFalsePositive}
+      useFilenameName={true}
       onClick={(data) => {
         if (data) {
           onClickFaces([data.filename], true);

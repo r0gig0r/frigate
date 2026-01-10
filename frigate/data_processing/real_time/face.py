@@ -449,8 +449,27 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             }
         elif topic == EmbeddingsRequestEnum.reprocess_face.value:
             current_file: str = request_data["image_file"]
-            (id_time, id_rand, timestamp, _, _) = current_file.split("-")
             img = None
+
+            # Extract just the filename (without path and extension)
+            basename = os.path.basename(current_file)
+            name_without_ext = basename.rsplit(".", 1)[0] if "." in basename else basename
+            parts = name_without_ext.split("-")
+
+            # Try to parse expected format: {id_time}-{id_rand}-{timestamp}-{name}-{score}
+            # If format doesn't match, generate new IDs
+            if len(parts) >= 5:
+                id_time = parts[0]
+                id_rand = parts[1]
+                timestamp = parts[2]
+            else:
+                # File doesn't match expected format (e.g., false positive files)
+                # Generate new IDs based on current time
+                now = datetime.datetime.now()
+                id_time = str(now.timestamp())
+                id_rand = f"fp{int(now.timestamp() * 1000) % 100000:05d}"
+                timestamp = str(int(now.timestamp()))
+
             id = f"{id_time}-{id_rand}"
 
             if current_file:

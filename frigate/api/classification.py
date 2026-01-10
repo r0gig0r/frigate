@@ -437,8 +437,9 @@ def deregister_faces(request: Request, name: str, body: DeleteFaceImagesBody):
     response_model=GenericResponse,
     dependencies=[Depends(require_role(["admin"]))],
     summary="Mark face recognitions as false positives",
-    description="""Moves selected face images back into the training pool and clears the classifier.
-    Returns suggested identities for each moved image so mis-tagged events can be corrected.""",
+    description="""For files in a named face folder: moves them back to training pool.
+    For files already in training folder: deletes them (they are wrong classifications).
+    Clears the classifier to trigger retraining.""",
 )
 def mark_false_positive(request: Request, name: str, body: DeleteFaceImagesBody):
     if not request.app.frigate_config.face_recognition.enabled:
@@ -453,39 +454,56 @@ def mark_false_positive(request: Request, name: str, body: DeleteFaceImagesBody)
     os.makedirs(train_folder, exist_ok=True)
 
     moved: list[str] = []
+    deleted: list[str] = []
     suggestions: list[dict[str, Any]] = []
 
     for img_id in body.ids:
         sanitized = sanitize_filename(img_id)
         src = os.path.join(face_folder, sanitized)
 
-        if not os.path.isfile(src):
-            continue
+        # Check if file exists in the named face folder
+        if os.path.isfile(src):
+            # Move from face folder to train folder
+            dest = os.path.join(train_folder, f"{name}-{sanitized}")
+            shutil.move(src, dest)
+            moved.append(os.path.basename(dest))
 
-        dest = os.path.join(train_folder, f"{name}-{sanitized}")
-        shutil.move(src, dest)
-        moved.append(os.path.basename(dest))
-
-        res = context.reprocess_face(dest)
-        if isinstance(res, dict) and res.get("success") and res.get("face_name"):
-            suggestions.append(
-                {
-                    "training_file": os.path.basename(dest),
-                    "suggested_face": res.get("face_name"),
-                    "score": res.get("score"),
-                }
-            )
+            res = context.reprocess_face(dest)
+            if isinstance(res, dict) and res.get("success") and res.get("face_name"):
+                suggestions.append(
+                    {
+                        "training_file": os.path.basename(dest),
+                        "suggested_face": res.get("face_name"),
+                        "score": res.get("score"),
+                    }
+                )
+        else:
+            # File not in face folder - check if it's in train folder
+            # This handles training files that were auto-classified incorrectly
+            train_src = os.path.join(train_folder, sanitized)
+            if os.path.isfile(train_src):
+                # Delete the wrongly classified training file
+                os.unlink(train_src)
+                deleted.append(sanitized)
 
     if os.path.isdir(face_folder) and len(os.listdir(face_folder)) == 0:
         os.rmdir(face_folder)
 
     context.clear_face_classifier()
 
+    message_parts = []
+    if moved:
+        message_parts.append(f"Moved {len(moved)} face(s) to training pool")
+    if deleted:
+        message_parts.append(f"Deleted {len(deleted)} false positive(s) from training")
+    message = ". ".join(message_parts) if message_parts else "No files were processed"
+
     return JSONResponse(
         content={
             "success": True,
-            "message": "Marked faces as false positives and queued retraining.",
+            "message": message + ". Retraining queued.",
             "moved": moved,
+            "deleted": deleted,
             "suggestions": suggestions,
         },
         status_code=200,

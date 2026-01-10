@@ -1,4 +1,8 @@
 {
+  "tabs": {
+    "unrecognized": "Unrecognized",
+    "recognized": "Recognized"
+  },
   "description": {
     "addFace": "Add a new collection to the Face Library by uploading your first image.",
     "placeholder": "Enter a name for this collection",
