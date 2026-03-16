@@ -17,6 +17,9 @@ import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { useNavigate } from "react-router-dom";
 import { HiSquare2Stack } from "react-icons/hi2";
 import { ImageShadowOverlay } from "../overlay/ImageShadowOverlay";
+import FaceSelectionDialog from "@/components/overlay/FaceSelectionDialog";
+import AddFaceIcon from "@/components/icons/AddFaceIcon";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogContent,
@@ -200,7 +203,12 @@ type GroupedClassificationCardProps = {
   objectType: string;
   noClassificationLabel?: string;
   onClick: (data: ClassificationItemData | undefined) => void;
+  faceNames?: string[];
+  onTagSelectedFaces?: (files: string[], name: string) => void;
+  onMarkFalsePositive?: (files: string[]) => void;
   children?: (data: ClassificationItemData) => React.ReactNode;
+  /** When true, use the name from filename instead of event.sub_label (for training view) */
+  useFilenameName?: boolean;
 };
 export function GroupedClassificationCard({
   group,
@@ -210,13 +218,32 @@ export function GroupedClassificationCard({
   i18nLibrary,
   noClassificationLabel = "details.none",
   onClick,
+  faceNames = [],
+  onTagSelectedFaces,
+  onMarkFalsePositive,
   children,
+  useFilenameName = false,
 }: GroupedClassificationCardProps) {
   const navigate = useNavigate();
   const { t } = useTranslation(["views/explore", i18nLibrary]);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedGroupFaces, setSelectedGroupFaces] = useState<string[]>([]);
 
   // data
+
+  // Get the actual name from filename (used for "Mark False Positive" logic)
+  const filenameName = useMemo(() => {
+    // Find the best item by score and return its name from filename
+    let best: ClassificationItemData | undefined;
+    group.forEach((item) => {
+      if (item?.name != undefined && item.name != "none") {
+        if (!best?.score || (item.score && best.score < item.score)) {
+          best = item;
+        }
+      }
+    });
+    return best?.name ?? group.at(-1)?.name ?? "unknown";
+  }, [group]);
 
   const bestItem = useMemo<ClassificationItemData | undefined>(() => {
     let best: undefined | ClassificationItemData = undefined;
@@ -237,17 +264,48 @@ export function GroupedClassificationCard({
     }
 
     const bestTyped: ClassificationItemData = best;
+
+    // Determine display name
+    let displayName: string;
+    if (useFilenameName) {
+      // Training view: always use the name from filename
+      if (
+        bestTyped.name &&
+        bestTyped.name !== "unknown" &&
+        bestTyped.name !== "none"
+      ) {
+        displayName = bestTyped.name;
+      } else {
+        displayName = t(noClassificationLabel);
+      }
+    } else if (
+      classifiedEvent?.label &&
+      classifiedEvent.label !== "none"
+    ) {
+      // Event has confirmed recognition
+      displayName = classifiedEvent.label;
+    } else if (classifiedEvent) {
+      displayName = t(noClassificationLabel);
+    } else if (
+      bestTyped.name &&
+      bestTyped.name !== "unknown" &&
+      bestTyped.name !== "none"
+    ) {
+      // Use best face's predicted name from filename
+      displayName = bestTyped.name;
+    } else {
+      // Truly unknown
+      displayName = t(noClassificationLabel);
+    }
+
     return {
       ...bestTyped,
-      name:
-        classifiedEvent?.label && classifiedEvent.label !== "none"
-          ? classifiedEvent.label
-          : classifiedEvent
-            ? t(noClassificationLabel)
-            : bestTyped.name,
-      score: classifiedEvent?.score,
+      name: displayName,
+      score: useFilenameName
+        ? bestTyped.score
+        : (classifiedEvent?.score ?? bestTyped.score),
     };
-  }, [group, classifiedEvent, noClassificationLabel, t]);
+  }, [group, classifiedEvent, noClassificationLabel, t, useFilenameName]);
 
   const bestScoreStatus = useMemo(() => {
     if (!bestItem?.score || !threshold) {
@@ -286,6 +344,30 @@ export function GroupedClassificationCard({
     ? DialogDescription
     : MobilePageDescription;
 
+  const toggleSelection = (filename: string) => {
+    setSelectedGroupFaces((current) =>
+      current.includes(filename)
+        ? current.filter((id) => id !== filename)
+        : [...current, filename],
+    );
+  };
+
+  const clearSelection = () => setSelectedGroupFaces([]);
+
+  const handleTagSelection = (name: string) => {
+    if (!selectedGroupFaces.length || !onTagSelectedFaces) return;
+
+    onTagSelectedFaces(selectedGroupFaces, name);
+    clearSelection();
+  };
+
+  const handleMarkFalsePositive = () => {
+    if (!selectedGroupFaces.length || !onMarkFalsePositive) return;
+
+    onMarkFalsePositive(selectedGroupFaces);
+    clearSelection();
+  };
+
   return (
     <>
       <ClassificationCard
@@ -308,6 +390,7 @@ export function GroupedClassificationCard({
         onOpenChange={(open) => {
           if (!open) {
             setDetailOpen(false);
+            clearSelection();
           }
         }}
       >
@@ -334,38 +417,34 @@ export function GroupedClassificationCard({
                 )}
               >
                 <ContentTitle className="flex items-center gap-2 font-normal capitalize">
-                  {classifiedEvent?.label && classifiedEvent.label !== "none"
-                    ? classifiedEvent.label
-                    : t(noClassificationLabel, { ns: i18nLibrary })}
-                  {classifiedEvent?.label &&
-                    classifiedEvent.label !== "none" &&
-                    classifiedEvent.score !== undefined && (
-                      <div className="flex items-center gap-1">
-                        <div
-                          className={cn(
-                            "",
-                            bestScoreStatus == "match" && "text-success",
-                            bestScoreStatus == "potential" && "text-orange-400",
-                            bestScoreStatus == "unknown" && "text-danger",
-                          )}
-                        >{`${Math.round((classifiedEvent.score || 0) * 100)}%`}</div>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button
-                              className="focus:outline-none"
-                              aria-label={t("details.scoreInfo", {
-                                ns: i18nLibrary,
-                              })}
-                            >
-                              <LuInfo className="size-3" />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-80 text-sm">
-                            {t("details.scoreInfo", { ns: i18nLibrary })}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                    )}
+                  {bestItem?.name ?? t(noClassificationLabel)}
+                  {bestItem?.score != null && filenameName !== "unknown" && (
+                    <div className="flex items-center gap-1">
+                      <div
+                        className={cn(
+                          "",
+                          bestScoreStatus == "match" && "text-success",
+                          bestScoreStatus == "potential" && "text-orange-400",
+                          bestScoreStatus == "unknown" && "text-danger",
+                        )}
+                      >{`${Math.round((bestItem.score || 0) * 100)}%`}</div>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="focus:outline-none"
+                            aria-label={t("details.scoreInfo", {
+                              ns: i18nLibrary,
+                            })}
+                          >
+                            <LuInfo className="size-3" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80 text-sm">
+                          {t("details.scoreInfo", { ns: i18nLibrary })}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  )}
                 </ContentTitle>
                 <ContentDescription className={cn("", isMobile && "px-2")}>
                   {time && (
@@ -391,7 +470,9 @@ export function GroupedClassificationCard({
                         className="cursor-pointer"
                         tabIndex={-1}
                         onClick={() => {
-                          navigate(`/explore?event_id=${classifiedEvent.id}`);
+                          navigate(
+                            `/explore?event_id=${classifiedEvent.id}`,
+                          );
                         }}
                       >
                         <LuSearch className="size-4 text-secondary-foreground" />
@@ -408,6 +489,39 @@ export function GroupedClassificationCard({
                 </div>
               )}
             </Header>
+            {selectedGroupFaces.length > 0 && (
+              <div className="mx-2 mt-1 flex flex-col gap-2 rounded-lg border bg-muted/40 p-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-secondary-foreground">
+                  {t("selected", {
+                    ns: "views/event",
+                    count: selectedGroupFaces.length,
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <FaceSelectionDialog
+                    faceNames={faceNames}
+                    onTrainAttempt={handleTagSelection}
+                  >
+                    <button className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-secondary">
+                      <AddFaceIcon className="size-4" />
+                      {t("trainFaceAs", { ns: i18nLibrary })}
+                    </button>
+                  </FaceSelectionDialog>
+                  {filenameName !== "unknown" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleMarkFalsePositive}
+                    >
+                      {t("button.markFalsePositive", { ns: i18nLibrary })}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={clearSelection}>
+                    {t("button.unselect", { ns: "common" })}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div
               className={cn(
                 "grid w-full auto-rows-min grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 2xl:grid-cols-8",
@@ -420,10 +534,10 @@ export function GroupedClassificationCard({
                   <ClassificationCard
                     data={data}
                     threshold={threshold}
-                    selected={false}
-                    clickable={false}
+                    selected={selectedGroupFaces.includes(data.filename)}
+                    clickable={true}
                     i18nLibrary={i18nLibrary}
-                    onClick={() => {}}
+                    onClick={() => toggleSelection(data.filename)}
                   >
                     {children?.(data)}
                   </ClassificationCard>

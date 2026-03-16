@@ -19,6 +19,7 @@ from frigate.comms.recordings_updater import (
 )
 from frigate.config import CameraConfig, DetectConfig, LoggerConfig, ModelConfig
 from frigate.config.camera.camera import CameraTypeEnum
+from frigate.config.camera.ffmpeg import SourceTypeEnum
 from frigate.config.camera.updater import (
     CameraConfigUpdateEnum,
     CameraConfigUpdateSubscriber,
@@ -229,6 +230,13 @@ class CameraWatchdog(threading.Thread):
         self.latest_cache_segment_time: float = 0
         self.record_enable_time: datetime | None = None
 
+        # Get source_type from the detect input (custom: file_once support)
+        self.source_type = SourceTypeEnum.stream  # default
+        for ffmpeg_input in self.config.ffmpeg.inputs:
+            if "detect" in ffmpeg_input.roles:
+                self.source_type = ffmpeg_input.source_type
+                break
+
         # Stall tracking (based on last processed frame)
         self._stall_timestamps: deque[float] = deque()
         self._stall_active: bool = False
@@ -405,14 +413,24 @@ class CameraWatchdog(threading.Thread):
             can_restart = time_since_last_restart >= self.sleeptime
 
             if not self.capture_thread.is_alive():
-                self._send_detect_status("offline", now)
                 self.camera_fps.value = 0
-                self.logger.error(
-                    f"Ffmpeg process crashed unexpectedly for {self.config.name}."
-                )
-                if can_restart:
-                    self.reset_capture_thread(terminate=False)
-                    last_restart_time = now
+
+                # For file_once sources, don't restart - the file finished naturally
+                if self.source_type == SourceTypeEnum.file_once:
+                    self._send_detect_status("stopped", now)
+                    self.logger.info(
+                        f"File-based source for {self.config.name} has finished processing. Not restarting."
+                    )
+                    # Keep the watchdog alive but idle - wait for re-enable
+                    continue
+                else:
+                    self._send_detect_status("offline", now)
+                    self.logger.error(
+                        f"Ffmpeg process crashed unexpectedly for {self.config.name}."
+                    )
+                    if can_restart:
+                        self.reset_capture_thread(terminate=False)
+                        last_restart_time = now
             elif self.camera_fps.value >= (self.config.detect.fps + 10):
                 self.fps_overflow_count += 1
 

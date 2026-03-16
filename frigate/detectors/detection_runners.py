@@ -10,7 +10,11 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 
-from frigate.util.model import get_ort_providers
+from frigate.util.model import (
+    GPU_DEVICE_BALANCER,
+    discover_gpu_devices,
+    get_ort_providers,
+)
 from frigate.util.rknn_converter import auto_convert_model, is_rknn_compatible
 
 logger = logging.getLogger(__name__)
@@ -551,6 +555,19 @@ def get_optimized_runner(
 ) -> BaseModelRunner:
     """Get an optimized runner for the hardware."""
     device = device or "AUTO"
+    device_pool = kwargs.pop("device_pool", None)
+
+    if device != "CPU":
+        if not device_pool:
+            device_pool = discover_gpu_devices()
+
+        if device_pool:
+            # Preserve single-GPU behavior by short-circuiting to the only entry.
+            # The balancer is only useful when more than one GPU id is supplied.
+            if len(device_pool) == 1:
+                device = device_pool[0]
+            else:
+                device = GPU_DEVICE_BALANCER.select(device_pool)
 
     if device != "CPU" and is_rknn_compatible(model_path):
         rknn_path = auto_convert_model(model_path)

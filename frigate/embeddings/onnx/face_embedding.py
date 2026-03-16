@@ -156,6 +156,7 @@ class ArcfaceEmbedding(BaseEmbedding):
                 os.path.join(self.download_path, self.model_file),
                 device=self.config.device or "GPU",
                 model_type=EnrichmentModelTypeEnum.arcface.value,
+                device_pool=self.config.device_pool,
             )
 
     def _preprocess_inputs(self, raw_inputs):

@@ -36,6 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import useOptimisticState from "@/hooks/use-optimistic-state";
 import { cn } from "@/lib/utils";
@@ -109,6 +110,31 @@ export default function FaceLibrary() {
   const trainImages = useMemo<string[]>(
     () => faceData?.["train"] || [],
     [faceData],
+  );
+
+  // Training tab state and filtered lists
+  const [trainTab, setTrainTab] = useState<"unrecognized" | "recognized">(
+    "unrecognized",
+  );
+
+  const unrecognizedFaces = useMemo<string[]>(
+    () =>
+      trainImages.filter((img) => {
+        const parts = img.split("-");
+        const name = parts[3];
+        return name === "unknown";
+      }),
+    [trainImages],
+  );
+
+  const recognizedFaces = useMemo<string[]>(
+    () =>
+      trainImages.filter((img) => {
+        const parts = img.split("-");
+        const name = parts[3];
+        return name !== "unknown";
+      }),
+    [trainImages],
   );
 
   // upload
@@ -266,6 +292,62 @@ export default function FaceLibrary() {
     [setPageToggle, refreshFaces, t],
   );
 
+  const onMarkFalsePositive = useCallback(() => {
+    axios
+      .post(`/faces/${pageToggle}/flag_false_positive`, { ids: selectedFaces })
+      .then((resp) => {
+        if (resp.status === 200) {
+          refreshFaces();
+          setSelectedFaces([]);
+          toast.success(t("toast.success.markedFalsePositive"), {
+            position: "top-center",
+          });
+        }
+      })
+      .catch((error) => {
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Unknown error";
+        toast.error(
+          t("toast.error.markFalsePositiveFailed", { errorMessage }),
+          {
+            position: "top-center",
+          },
+        );
+      });
+  }, [pageToggle, selectedFaces, refreshFaces, t]);
+
+  const onTagSelectedFaces = useCallback(
+    (targetName: string) => {
+      if (!selectedFaces.length) return;
+
+      axios
+        .post(`/faces/train/${targetName}/classify`, {
+          training_files: selectedFaces,
+        })
+        .then((resp) => {
+          if (resp.status === 200) {
+            toast.success(t("toast.success.taggedFaces"), {
+              position: "top-center",
+            });
+            refreshFaces();
+            setSelectedFaces([]);
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.taggingFailed", { errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [selectedFaces, refreshFaces, t],
+  );
+
   // keyboard
 
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -282,9 +364,16 @@ export default function FaceLibrary() {
             if (selectedFaces.length) {
               setSelectedFaces([]);
             } else {
-              setSelectedFaces([
-                ...(pageToggle === "train" ? trainImages : faceImages),
-              ]);
+              let imagesToSelect: string[];
+              if (pageToggle === "train") {
+                imagesToSelect =
+                  trainTab === "unrecognized"
+                    ? unrecognizedFaces
+                    : recognizedFaces;
+              } else {
+                imagesToSelect = faceImages;
+              }
+              setSelectedFaces([...imagesToSelect]);
             }
 
             return true;
@@ -389,23 +478,51 @@ export default function FaceLibrary() {
               </div>
               {selectedFaces.length <
                 (pageToggle === "train"
-                  ? trainImages.length
+                  ? trainTab === "unrecognized"
+                    ? unrecognizedFaces.length
+                    : recognizedFaces.length
                   : faceImages.length) && (
                 <>
                   <div className="p-1">{"|"}</div>
                   <div
                     className="cursor-pointer p-2 text-primary hover:rounded-lg hover:bg-secondary"
-                    onClick={() =>
-                      setSelectedFaces([
-                        ...(pageToggle === "train" ? trainImages : faceImages),
-                      ])
-                    }
+                    onClick={() => {
+                      let imagesToSelect: string[];
+                      if (pageToggle === "train") {
+                        imagesToSelect =
+                          trainTab === "unrecognized"
+                            ? unrecognizedFaces
+                            : recognizedFaces;
+                      } else {
+                        imagesToSelect = faceImages;
+                      }
+                      setSelectedFaces([...imagesToSelect]);
+                    }}
                   >
                     {t("select_all", { ns: "views/events" })}
                   </div>
                 </>
               )}
             </div>
+            {pageToggle === "train" && (
+              <FaceSelectionDialog
+                faceNames={faces}
+                onTrainAttempt={onTagSelectedFaces}
+              >
+                <Button className="flex gap-2" variant="secondary">
+                  <LuPencil className="size-7 rounded-md p-1 text-secondary-foreground" />
+                  {isDesktop && t("button.tagSelected")}
+                </Button>
+              </FaceSelectionDialog>
+            )}
+            <Button
+              className="flex gap-2"
+              variant="outline"
+              onClick={onMarkFalsePositive}
+            >
+              <LuRefreshCw className="size-7 rounded-md p-1 text-secondary-foreground" />
+              {isDesktop && t("button.markFalsePositive")}
+            </Button>
             <Button
               className="flex gap-2"
               onClick={() =>
@@ -439,15 +556,47 @@ export default function FaceLibrary() {
       ) : (
         pageToggle &&
         (pageToggle == "train" ? (
-          <TrainingGrid
-            config={config}
-            contentRef={contentRef}
-            attemptImages={trainImages}
-            faceNames={faces}
-            selectedFaces={selectedFaces}
-            onClickFaces={onClickFaces}
-            onRefresh={refreshFaces}
-          />
+          <Tabs
+            value={trainTab}
+            onValueChange={(value) => {
+              setTrainTab(value as "unrecognized" | "recognized");
+              setSelectedFaces([]);
+            }}
+            className="flex h-full flex-col"
+          >
+            <TabsList className="mb-2 grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="unrecognized">
+                {t("tabs.unrecognized")} ({unrecognizedFaces.length})
+              </TabsTrigger>
+              <TabsTrigger value="recognized">
+                {t("tabs.recognized")} ({recognizedFaces.length})
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="unrecognized" className="flex-1 overflow-hidden">
+              <TrainingGrid
+                config={config}
+                contentRef={contentRef}
+                attemptImages={unrecognizedFaces}
+                faceNames={faces}
+                selectedFaces={selectedFaces}
+                onClickFaces={onClickFaces}
+                onRefresh={refreshFaces}
+                groupByName={false}
+              />
+            </TabsContent>
+            <TabsContent value="recognized" className="flex-1 overflow-hidden">
+              <TrainingGrid
+                config={config}
+                contentRef={contentRef}
+                attemptImages={recognizedFaces}
+                faceNames={faces}
+                selectedFaces={selectedFaces}
+                onClickFaces={onClickFaces}
+                onRefresh={refreshFaces}
+                groupByName={true}
+              />
+            </TabsContent>
+          </Tabs>
         ) : (
           <FaceGrid
             contentRef={contentRef}
@@ -671,6 +820,7 @@ type TrainingGridProps = {
         ) => FaceLibraryData | undefined),
     opts?: boolean | { revalidate?: boolean },
   ) => Promise<FaceLibraryData | undefined>;
+  groupByName?: boolean;
 };
 function TrainingGrid({
   config,
@@ -680,13 +830,14 @@ function TrainingGrid({
   selectedFaces,
   onClickFaces,
   onRefresh,
+  groupByName = false,
 }: TrainingGridProps) {
   const { t } = useTranslation(["views/faceLibrary"]);
 
   // face data
 
   const faceGroups = useMemo(() => {
-    const groups: { [eventId: string]: ClassificationItemData[] } = {};
+    const groups: { [key: string]: ClassificationItemData[] } = {};
 
     const faces = attemptImages
       .map((image) => {
@@ -707,29 +858,45 @@ function TrainingGrid({
       })
       .filter((v) => v != null);
 
-    faces
-      .sort((a, b) => a.eventId.localeCompare(b.eventId))
-      .reverse()
-      .forEach((face) => {
-        if (groups[face.eventId]) {
-          groups[face.eventId].push(face);
-        } else {
-          groups[face.eventId] = [face];
-        }
-      });
+    if (groupByName) {
+      // Group by face name (for recognized faces tab)
+      faces
+        .sort((a, b) => b.score - a.score) // Sort by score descending
+        .forEach((face) => {
+          const key = face.name;
+          if (groups[key]) {
+            groups[key].push(face);
+          } else {
+            groups[key] = [face];
+          }
+        });
+    } else {
+      // Group by event ID (for unrecognized faces tab)
+      faces
+        .sort((a, b) => a.eventId.localeCompare(b.eventId))
+        .reverse()
+        .forEach((face) => {
+          const key = face.eventId;
+          if (groups[key]) {
+            groups[key].push(face);
+          } else {
+            groups[key] = [face];
+          }
+        });
+    }
 
     return groups;
-  }, [attemptImages]);
+  }, [attemptImages, groupByName]);
 
-  const eventIdsQuery = useMemo(
-    () => Object.keys(faceGroups).join(","),
-    [faceGroups],
+  // Only fetch events when grouping by event ID (not by name)
+  const eventIdsQuery = useMemo(() => {
+    if (groupByName) return "";
+    return Object.keys(faceGroups).join(",");
+  }, [faceGroups, groupByName]);
+
+  const { data: events } = useSWR<Event[]>(
+    eventIdsQuery ? ["event_ids", { ids: eventIdsQuery }] : null,
   );
-
-  const { data: events } = useSWR<Event[]>([
-    "event_ids",
-    { ids: eventIdsQuery },
-  ]);
 
   if (attemptImages.length == 0) {
     return (
@@ -748,7 +915,10 @@ function TrainingGrid({
       )}
     >
       {Object.entries(faceGroups).map(([key, group]) => {
-        const event = events?.find((ev) => ev.id == key);
+        // When grouping by name, key is the face name, not event ID
+        const event = groupByName
+          ? undefined
+          : events?.find((ev) => ev.id == key);
         return (
           <div key={key} className="aspect-square w-full">
             <FaceAttemptGroup
@@ -866,6 +1036,73 @@ function FaceAttemptGroup({
     [onRefresh, t],
   );
 
+  const onTagSelection = useCallback(
+    (trainingFiles: string[], trainName: string) => {
+      axios
+        .post(`/faces/train/${trainName}/classify`, {
+          training_files: trainingFiles,
+        })
+        .then((resp) => {
+          if (resp.status == 200) {
+            toast.success(t("toast.success.taggedFaces"), {
+              position: "top-center",
+              closeButton: true,
+            });
+            onRefresh();
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.taggingFailed", { errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [onRefresh, t],
+  );
+
+  const onMarkFalsePositive = useCallback(
+    (trainingFiles: string[]) => {
+      const predictedName = group[0]?.name;
+
+      if (!predictedName || predictedName === "unknown") {
+        toast.error(t("toast.error.markFalsePositiveUnavailable"), {
+          position: "top-center",
+        });
+        return;
+      }
+
+      axios
+        .post(`/faces/${predictedName}/flag_false_positive`, {
+          ids: trainingFiles,
+        })
+        .then((resp) => {
+          if (resp.status === 200) {
+            toast.success(t("toast.success.markedFalsePositive"), {
+              position: "top-center",
+            });
+            onRefresh();
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(
+            t("toast.error.markFalsePositiveFailed", { errorMessage }),
+            {
+              position: "top-center",
+            },
+          );
+        });
+    },
+    [group, onRefresh, t],
+  );
+
   const onReprocess = useCallback(
     (data: ClassificationItemData) => {
       axios
@@ -948,6 +1185,10 @@ function FaceAttemptGroup({
       i18nLibrary="views/faceLibrary"
       objectType="person"
       noClassificationLabel="details.unknown"
+      faceNames={faceNames}
+      onTagSelectedFaces={onTagSelection}
+      onMarkFalsePositive={onMarkFalsePositive}
+      useFilenameName={true}
       onClick={(data) => {
         if (data) {
           onClickFaces([data.filename], true);

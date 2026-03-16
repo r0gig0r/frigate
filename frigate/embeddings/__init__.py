@@ -214,6 +214,12 @@ class EmbeddingsContext:
 
         return self.db.execute_sql(sql_query).fetchall()
 
+    def detect_recognize_faces(self, event_id: str, image_data: bytes) -> dict[str, Any]:
+        return self.requestor.send_data(
+            EmbeddingsRequestEnum.detect_recognize_faces.value,
+            {"event_id": event_id, "image": base64.b64encode(image_data).decode("ASCII")},
+        )
+
     def reprocess_face(self, face_file: str) -> dict[str, Any]:
         return self.requestor.send_data(
             EmbeddingsRequestEnum.reprocess_face.value, {"image_file": face_file}

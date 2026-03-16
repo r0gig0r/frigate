@@ -2,6 +2,7 @@ import { isDesktop, isIOS, isMobile, isSafari } from "react-device-detect";
 import { SearchResult } from "@/types/search";
 import useSWR from "swr";
 import { FrigateConfig } from "@/types/frigateConfig";
+import { FaceLibraryData } from "@/types/face";
 import { useFormattedTimestamp } from "@/hooks/use-date-utils";
 import { getIconForLabel } from "@/utils/iconUtil";
 import { useApiHost } from "@/api";
@@ -80,7 +81,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { LuInfo } from "react-icons/lu";
+import { LuInfo, LuRefreshCw } from "react-icons/lu";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { FaPencilAlt } from "react-icons/fa";
 import TextEntryDialog from "@/components/overlay/dialog/TextEntryDialog";
@@ -94,8 +95,12 @@ import { useDetailStream } from "@/context/detail-stream-context";
 import { PiSlidersHorizontalBold } from "react-icons/pi";
 import { HiSparkles } from "react-icons/hi";
 import { useAudioTranscriptionProcessState } from "@/api/ws";
+import FaceSelectionDialog from "@/components/overlay/FaceSelectionDialog";
+import AddFaceIcon from "@/components/icons/AddFaceIcon";
+import FaceRecognitionTab from "./FaceRecognitionTab";
+import FaceDebugTab from "./FaceDebugTab";
 
-const SEARCH_TABS = ["snapshot", "tracking_details"] as const;
+const SEARCH_TABS = ["snapshot", "tracking_details", "face_recognition", "debug"] as const;
 export type SearchTab = (typeof SEARCH_TABS)[number];
 
 type TabsWithActionsProps = {
@@ -299,6 +304,7 @@ type DialogContentComponentProps = {
   setIsPopoverOpen: (open: boolean) => void;
   dialogContainer: HTMLDivElement | null;
   setShowNavigationButtons: React.Dispatch<React.SetStateAction<boolean>>;
+  faceNames: string[];
 };
 
 function DialogContentComponent({
@@ -317,6 +323,7 @@ function DialogContentComponent({
   setIsPopoverOpen,
   dialogContainer,
   setShowNavigationButtons,
+  faceNames,
 }: DialogContentComponentProps) {
   if (page === "tracking_details") {
     return (
@@ -341,6 +348,133 @@ function DialogContentComponent({
           ) : undefined
         }
       />
+    );
+  }
+
+  // Face Recognition tab - use same grid structure as other tabs
+  if (page === "face_recognition") {
+    if (isDesktop) {
+      return (
+        <div className="grid h-full w-full grid-cols-[60%_40%] gap-4">
+          <div className="scrollbar-container min-w-0 overflow-y-auto overflow-x-hidden">
+            <FaceRecognitionTab
+              event={search}
+              config={config}
+              faceNames={faceNames}
+              isDesktop={isDesktop}
+              side="left"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4 pr-2">
+            <TabsWithActions
+              search={search}
+              searchTabs={searchTabs}
+              pageToggle={pageToggle}
+              setPageToggle={setPageToggle}
+              config={config}
+              setSearch={setSearch}
+              setSimilarity={setSimilarity}
+              isPopoverOpen={isPopoverOpen}
+              setIsPopoverOpen={setIsPopoverOpen}
+              dialogContainer={dialogContainer}
+            />
+            <div className="scrollbar-container min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4">
+              <FaceRecognitionTab
+                event={search}
+                config={config}
+                faceNames={faceNames}
+                isDesktop={isDesktop}
+                side="right"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // mobile
+    return (
+      <>
+        <TabsWithActions
+          search={search}
+          searchTabs={searchTabs}
+          pageToggle={pageToggle}
+          setPageToggle={setPageToggle}
+          config={config}
+          setSearch={setSearch}
+          setSimilarity={setSimilarity}
+          isPopoverOpen={isPopoverOpen}
+          setIsPopoverOpen={setIsPopoverOpen}
+          dialogContainer={dialogContainer}
+        />
+        <FaceRecognitionTab
+          event={search}
+          config={config}
+          faceNames={faceNames}
+          isDesktop={isDesktop}
+        />
+      </>
+    );
+  }
+
+  // Debug tab - use same grid structure
+  if (page === "debug") {
+    if (isDesktop) {
+      return (
+        <div className="grid h-full w-full grid-cols-[60%_40%] gap-4">
+          <div className="scrollbar-container min-w-0 overflow-y-auto overflow-x-hidden">
+            <FaceDebugTab
+              event={search}
+              config={config}
+              isDesktop={isDesktop}
+              side="left"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4 pr-2">
+            <TabsWithActions
+              search={search}
+              searchTabs={searchTabs}
+              pageToggle={pageToggle}
+              setPageToggle={setPageToggle}
+              config={config}
+              setSearch={setSearch}
+              setSimilarity={setSimilarity}
+              isPopoverOpen={isPopoverOpen}
+              setIsPopoverOpen={setIsPopoverOpen}
+              dialogContainer={dialogContainer}
+            />
+            <div className="scrollbar-container min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4">
+              <FaceDebugTab
+                event={search}
+                config={config}
+                isDesktop={isDesktop}
+                side="right"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // mobile
+    return (
+      <>
+        <TabsWithActions
+          search={search}
+          searchTabs={searchTabs}
+          pageToggle={pageToggle}
+          setPageToggle={setPageToggle}
+          config={config}
+          setSearch={setSearch}
+          setSimilarity={setSimilarity}
+          isPopoverOpen={isPopoverOpen}
+          setIsPopoverOpen={setIsPopoverOpen}
+          dialogContainer={dialogContainer}
+        />
+        <FaceDebugTab
+          event={search}
+          config={config}
+          isDesktop={isDesktop}
+        />
+      </>
     );
   }
 
@@ -404,6 +538,7 @@ function DialogContentComponent({
               setSearch={setSearch}
               setInputFocused={setInputFocused}
               setShowNavigationButtons={setShowNavigationButtons}
+              faceNames={faceNames}
             />
           </div>
         </div>
@@ -421,6 +556,7 @@ function DialogContentComponent({
         setSearch={setSearch}
         setInputFocused={setInputFocused}
         setShowNavigationButtons={setShowNavigationButtons}
+        faceNames={faceNames}
       />
     </>
   );
@@ -451,7 +587,20 @@ export default function SearchDetailDialog({
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
   });
+  const { data: faceLibrary } = useSWR<FaceLibraryData>("faces", {
+    revalidateOnFocus: false,
+  });
   const apiHost = useApiHost();
+
+  const faceNames = useMemo(
+    () =>
+      faceLibrary
+        ? Object.keys(faceLibrary)
+            .filter((face) => face !== "train")
+            .sort()
+        : [],
+    [faceLibrary],
+  );
 
   // tabs
 
@@ -674,6 +823,7 @@ export default function SearchDetailDialog({
             setIsPopoverOpen={setIsPopoverOpen}
             dialogContainer={dialogContainer}
             setShowNavigationButtons={setShowNavigationButtons}
+            faceNames={faceNames}
           />
         </Content>
       </Overlay>
@@ -687,6 +837,7 @@ type ObjectDetailsTabProps = {
   setSearch: (search: SearchResult | undefined) => void;
   setInputFocused: React.Dispatch<React.SetStateAction<boolean>>;
   setShowNavigationButtons?: React.Dispatch<React.SetStateAction<boolean>>;
+  faceNames: string[];
 };
 function ObjectDetailsTab({
   search,
@@ -694,6 +845,7 @@ function ObjectDetailsTab({
   setSearch,
   setInputFocused,
   setShowNavigationButtons,
+  faceNames,
 }: ObjectDetailsTabProps) {
   const { t, i18n } = useTranslation([
     "views/explore",
@@ -739,11 +891,17 @@ function ObjectDetailsTab({
   // data
 
   const [desc, setDesc] = useState(search?.data.description);
+  const [isReprocessingFace, setIsReprocessingFace] = useState(false);
+  const [faceAnalysisDetails, setFaceAnalysisDetails] = useState<string>();
   const [isSubLabelDialogOpen, setIsSubLabelDialogOpen] = useState(false);
   const [isLPRDialogOpen, setIsLPRDialogOpen] = useState(false);
   const [isAttributesDialogOpen, setIsAttributesDialogOpen] = useState(false);
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const originalDescRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setFaceAnalysisDetails(undefined);
+  }, [search?.id]);
 
   const handleDescriptionFocus = useCallback(() => {
     setInputFocused(true);
@@ -1059,6 +1217,80 @@ function ObjectDetailsTab({
     [search, apiHost, mutate, setSearch, t, mapSearchResults, isEventsKey],
   );
 
+  const onTrainFaceFromEvent = useCallback(
+    (faceName: string) => {
+      if (!search?.id) return;
+
+      axios
+        .post(`/faces/train/${faceName}/classify`, { event_id: search.id })
+        .then((response) => {
+          if (response.status === 200) {
+            toast.success(t("toast.success.trainedFace", { ns: "views/faceLibrary" }), {
+              position: "top-center",
+            });
+            handleSubLabelSave(faceName);
+          }
+        })
+        .catch((error) => {
+          const errorMessage =
+            error.response?.data?.message ||
+            error.response?.data?.detail ||
+            "Unknown error";
+          toast.error(t("toast.error.trainFailed", { ns: "views/faceLibrary", errorMessage }), {
+            position: "top-center",
+          });
+        });
+    },
+    [search, handleSubLabelSave, t],
+  );
+
+  const onReprocessEventFace = useCallback(() => {
+    if (!search?.id) return;
+
+    setIsReprocessingFace(true);
+
+    axios
+      .put(`/faces/reprocess_event/${search.id}`)
+      .then((response) => {
+        if (response.status === 200) {
+          const detail = response.data;
+          setFaceAnalysisDetails(JSON.stringify(detail, null, 2));
+          const faceName = detail?.face_name || detail?.face || detail?.label;
+          const score = detail?.score;
+          toast.success(
+            faceName
+              ? t("toast.success.reprocessedEventFace", {
+                  ns: "views/faceLibrary",
+                  face: faceName,
+                  score: typeof score === "number" ? score.toFixed(2) : score,
+                })
+              : t("toast.success.reprocessedEventFaceGeneric", {
+                  ns: "views/faceLibrary",
+                }),
+            {
+              position: "top-center",
+            },
+          );
+        }
+      })
+      .catch((error) => {
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Unknown error";
+        toast.error(
+          t("toast.error.reprocessEventFaceFailed", {
+            ns: "views/faceLibrary",
+            errorMessage,
+          }),
+          {
+            position: "top-center",
+          },
+        );
+      })
+      .finally(() => setIsReprocessingFace(false));
+  }, [search, t]);
+
   // recognized plate
 
   const handleLPRSave = useCallback(
@@ -1313,6 +1545,30 @@ function ObjectDetailsTab({
                       )}
                       {getTranslatedLabel(search.label, search.data.type)}
                       {search.sub_label && ` (${search.sub_label})`}
+                      {isAdmin && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <FaceSelectionDialog
+                              faceNames={faceNames}
+                              onTrainAttempt={onTrainFaceFromEvent}
+                            >
+                              <button
+                                className="text-primary/40 hover:text-primary/80"
+                                aria-label={t("button.trainFace", {
+                                  ns: "views/faceLibrary",
+                                })}
+                              >
+                                <AddFaceIcon className="size-4" />
+                              </button>
+                            </FaceSelectionDialog>
+                          </TooltipTrigger>
+                          <TooltipPortal>
+                            <TooltipContent>
+                              {t("button.trainFromEvent", { ns: "views/faceLibrary" })}
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                      )}
                       {isAdmin && search.end_time && (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1332,6 +1588,40 @@ function ObjectDetailsTab({
                       )}
                     </div>
                   </div>
+
+                  <div className="flex flex-row flex-wrap items-center gap-2">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={isReprocessingFace}
+                      onClick={() => onReprocessEventFace()}
+                      className="h-8 gap-2 px-3"
+                    >
+                      <LuRefreshCw
+                        className={cn(
+                          "size-3",
+                          isReprocessingFace && "animate-spin",
+                        )}
+                      />
+                      {isReprocessingFace
+                        ? t("button.reprocessingEventFace", {
+                            ns: "views/faceLibrary",
+                          })
+                        : t("button.reprocessEventFace", {
+                            ns: "views/faceLibrary",
+                          })}
+                    </Button>
+                    {faceAnalysisDetails && (
+                      <div className="text-xs font-medium text-primary/70">
+                        {t("details.faceAnalysisHeader", { ns: "views/faceLibrary" })}
+                      </div>
+                    )}
+                  </div>
+                  {faceAnalysisDetails && (
+                    <pre className="scrollbar-container max-h-40 whitespace-pre-wrap rounded-md bg-muted/60 p-2 text-[11px] leading-[1.1rem] text-muted-foreground">
+                      {faceAnalysisDetails}
+                    </pre>
+                  )}
 
                   <div className="flex flex-col gap-1.5">
                     <div className="text-sm text-primary/40">

@@ -26,6 +26,14 @@ export interface FaceRecognitionConfig {
   unknown_score: number;
   detection_threshold: number;
   recognition_threshold: number;
+  min_area?: number;
+  min_faces?: number;
+  save_attempts?: number;
+  blur_confidence_filter?: boolean;
+  device?: string | null;
+  device_pool?: string[] | null;
+  min_quality_variance?: number | null;
+  min_quality_faces?: number;
 }
 
 export type SearchModel = "jinav1" | "jinav2";

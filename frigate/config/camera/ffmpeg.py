@@ -14,6 +14,7 @@ __all__ = [
     "CameraRoleEnum",
     "FfmpegConfig",
     "FfmpegOutputArgsConfig",
+    "SourceTypeEnum",
 ]
 
 # Note: Setting threads to less than 2 caused several issues with recording segments
@@ -113,6 +114,13 @@ class CameraRoleEnum(str, Enum):
     detect = "detect"
 
 
+class SourceTypeEnum(str, Enum):
+    """Source type for camera input."""
+
+    stream = "stream"  # Default: continuous stream (RTSP, RTMP, etc.) - auto-restarts on disconnect
+    file_once = "file_once"  # File-based source - stops when file ends, no auto-restart
+
+
 class CameraInput(FrigateBaseModel):
     path: EnvString = Field(
         title="Input path",
@@ -136,6 +144,10 @@ class CameraInput(FrigateBaseModel):
         default_factory=list,
         title="Input arguments",
         description="Input arguments specific to this stream.",
+    )
+    source_type: SourceTypeEnum = Field(
+        default=SourceTypeEnum.stream,
+        title="Source type: 'stream' for continuous streams that auto-restart, 'file_once' for file-based sources that stop when the file ends.",
     )
 
 
